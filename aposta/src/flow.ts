@@ -103,6 +103,7 @@ export async function submitOtpAndPassword(
     user: secrets.gmailAddress,
     pass: secrets.gmailAppPassword,
     senderFilter: 'caixa.gov.br',
+    sinceMs: Date.now() - 60_000, // only codes from the last minute (avoids stale backlog)
   });
   let code = await pollForOtp(fetchBody, {
     timeoutMs: timeoutSec * 1000,
@@ -132,12 +133,44 @@ export async function submitOtpAndPassword(
 }
 
 /**
- * Navigate to Carrinhos Favoritos, add the configured cart, go to the cart,
- * proceed to payment, and select the saved card. STOPS before any payment
- * action (does not click the "Continuar"/pay button).
- *
- * NOTE: the exact cart-row selector is finalized during the live dry-run; this
- * uses a defensive text match on the configured cart name.
+ * Click the CURRENTLY VISIBLE confirmation button. The id
+ * #confirmarModalConfirmacao is reused across many hidden, pre-rendered Angular
+ * modals, so we must target the visible one (`:visible`), not the first match.
+ */
+export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
+  for (const sel of [
+    'button#confirmarModalConfirmacao:visible',
+    'button:visible:has-text("Confirmar")',
+    'button:visible:has-text("Sim")',
+  ]) {
+    const loc = page.locator(sel);
+    if (await loc.count()) {
+      await loc.first().click().catch(() => {});
+      await sleep(2000);
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Empty the cart so it holds exactly the intended bet (confirm the popup). */
+export async function clearCart(page: Page, log: Logger): Promise<void> {
+  await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  await sleep(2500);
+  await acceptTermsIfPresent(page, log);
+  const clear = page.locator(selectors.carrinho.clearCartButton);
+  if (await clear.count()) {
+    await clear.click().catch(() => {});
+    await sleep(1200);
+    await clickVisibleModalConfirm(page);
+    log.step('clear-cart', 'ok');
+  }
+}
+
+/**
+ * Empty the cart, add the configured favorite cart, go to the cart, and proceed
+ * to payment (confirming the popup). Card selection is best-effort so the caller
+ * can still inspect/act on the payment page. STOPS before any payment.
  */
 export async function selectCarrinhoFavoritoAndCheckout(
   page: Page,
@@ -145,15 +178,16 @@ export async function selectCarrinhoFavoritoAndCheckout(
   cardLast4: string,
   log: Logger,
 ): Promise<CheckoutInfo> {
+  await clearCart(page, log);
+
   await page.goto(CARRINHOS_FAVORITOS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(3000);
+  await sleep(2500);
   await acceptTermsIfPresent(page, log);
   await page.waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou (nenhum carrinho salvo?).');
   });
 
-  // Select the RIGHT cart: the table row whose text contains the configured
-  // cart name, then click the include icon within that row.
+  // Select the RIGHT cart: the table row whose text contains the configured name.
   const rows = page
     .locator(selectors.carrinhos.rowContainer)
     .filter({ has: page.locator(selectors.carrinhos.includeIcon) });
@@ -165,12 +199,13 @@ export async function selectCarrinhoFavoritoAndCheckout(
     await rows.locator(selectors.carrinhos.includeIcon).click();
   } else {
     throw new AbortBeforePayment(
-      `Esperava exatamente 1 carrinho com o nome "${secrets.caixaCarrinhoFavorito}", encontrei ${matched} (de ${await rows.count()} carrinhos). Ajuste CAIXA_CARRINHO_FAVORITO para bater com a linha certa.`,
+      `Esperava exatamente 1 carrinho com o nome "${secrets.caixaCarrinhoFavorito}", encontrei ${matched} (de ${await rows.count()} carrinhos). Ajuste CAIXA_CARRINHO_FAVORITO.`,
     );
   }
-  await sleep(1500);
+  await sleep(1200);
+  await clickVisibleModalConfirm(page); // include may raise a confirm popup
 
-  // Go to the cart page, then proceed to payment.
+  // Go to the cart page, proceed to payment, confirm the popup.
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
@@ -178,10 +213,17 @@ export async function selectCarrinhoFavoritoAndCheckout(
     throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
   });
   await page.click(selectors.carrinho.goToPaymentButton);
+  await sleep(1200);
+  await clickVisibleModalConfirm(page); // "prosseguir para pagamento" popup
 
-  // Select the saved card by last-4 within the <select>
-  await page.waitForSelector(selectors.checkout.cardSelect, { timeout: 20_000 });
-  await selectCardByLast4(page, cardLast4);
+  // Wait for the payment page to settle.
+  await page
+    .waitForURL((u) => /pagamento/i.test(u.toString()) && /loteriasonline/i.test(u.toString()), { timeout: 30_000 })
+    .catch(() => {});
+  await sleep(2500);
+
+  // Best-effort card selection (do not throw — caller inspects the page).
+  await selectCardByLast4(page, cardLast4).catch((e) => log.info(`Cartão não selecionado ainda: ${(e as Error).message}`));
 
   const amount = await readAmount(page);
   const contest = await readContest(page);

@@ -34,6 +34,7 @@ export interface ImapConfig {
   user: string;
   pass: string;
   senderFilter: string; // e.g. 'caixa.gov.br'
+  sinceMs?: number; // only accept a code from an email received at/after this time (avoids stale codes)
 }
 
 // Verified manually in Task 9 (needs a live mailbox).
@@ -49,10 +50,17 @@ export function fetchLatestCaixaEmail(cfg: ImapConfig): () => Promise<string | n
       try {
         const uids = await client.search({ seen: false, from: cfg.senderFilter }, { uid: true });
         if (uids === false || !uids.length) return null;
-        const msg = await client.fetchOne(String(uids[uids.length - 1]), { source: true }, { uid: true });
+        const msg = await client.fetchOne(String(uids[uids.length - 1]), { source: true, internalDate: true }, { uid: true });
         if (msg === false || !msg.source) return null;
+        // Skip stale codes left unread by earlier logins.
+        if (cfg.sinceMs && msg.internalDate && new Date(msg.internalDate).getTime() < cfg.sinceMs) return null;
         const parsed = await simpleParser(msg.source);
-        return (parsed.text || parsed.html || null) as string | null;
+        const body = (parsed.text || parsed.html || null) as string | null;
+        // Consume the code so a later login never re-reads it.
+        if (body && extractOtp(body)) {
+          await client.messageFlagsAdd(String(msg.uid), ['\\Seen'], { uid: true }).catch(() => {});
+        }
+        return body;
       } finally {
         lock.release();
       }
