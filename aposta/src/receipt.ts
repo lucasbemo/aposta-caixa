@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
 export interface ReceiptRecord {
   id: string;
@@ -21,6 +22,6 @@ export function readHistory(historyPath: string): ReceiptRecord[] {
 export function appendHistory(historyPath: string, record: ReceiptRecord): void {
   const list = readHistory(historyPath);
   list.push(record);
-  fs.mkdirSync(historyPath.replace(/\/[^/]+$/, ''), { recursive: true });
+  fs.mkdirSync(path.dirname(historyPath), { recursive: true });
   fs.writeFileSync(historyPath, JSON.stringify(list, null, 2));
 }
