@@ -1,0 +1,5 @@
+{
+  "defaultCardLast4": "1234",
+  "maxAmountPerRun": 30.0,
+  "otpPollTimeoutSec": 90
+}
