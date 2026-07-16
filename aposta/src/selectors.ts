@@ -4,6 +4,8 @@
 // order is: CPF -> request email code -> enter code -> enter password.
 // Values still marked CONFIRMAR need one more live dry-run to nail down.
 export const CAIXA_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/home';
+export const CARRINHOS_FAVORITOS_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/carrinhos/favoritos';
+export const CARRINHO_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/carrinho';
 export const KEYCLOAK_HOST = 'login.caixa.gov.br';
 export const LOGGED_IN_URL_FRAGMENT = '/silce-web/#/home';
 
@@ -37,14 +39,10 @@ export const selectors = {
   },
 
   carrinhos: {
-    menuTab: 'a#carrinhotxt', // "Carrinhos Favoritos"
-    // Each saved cart row exposes an "Incluir no carrinho" icon:
-    includeIcon: 'a.incluir_carrinho',
-    // Selecting the RIGHT cart by name: locate the row containing the exact
-    // cart name text, then click the include icon within it. The precise row
-    // container class is CONFIRMAR (needs the dry-run to pin down).
-    rowContainer: 'CONFIRMAR', // e.g. '.carrinho-favorito-item'
-    viewBetsLink: 'a:has-text("Ver apostas")',
+    // Reached by navigating to CARRINHOS_FAVORITOS_URL directly (the menu tab
+    // is not reliably clickable from home).
+    rowContainer: 'tr', // each saved cart is a table row
+    includeIcon: 'a.incluir_carrinho', // "Incluir no carrinho" icon within a row
   },
 
   carrinho: {

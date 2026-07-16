@@ -39,10 +39,12 @@ async function runBet(dryRun: boolean): Promise<void> {
   const config = loadConfig(CONFIG_PATH);
   const { context, page } = await launchBrowser(PROFILE_DIR);
   try {
-    await login(page, secrets, log);
-    await submitOtpAndPassword(page, secrets, config.otpPollTimeoutSec, log, () =>
-      askLine('Cole o código do e-mail: '),
-    );
+    const state = await login(page, secrets, log);
+    if (state === 'CODE_REQUESTED') {
+      await submitOtpAndPassword(page, secrets, config.otpPollTimeoutSec, log, () =>
+        askLine('Cole o código do e-mail: '),
+      );
+    }
 
     const info = await selectCarrinhoFavoritoAndCheckout(page, secrets, config.defaultCardLast4, log);
     if (Number.isFinite(info.amount)) checkSpendGuardrail(info.amount, config.maxAmountPerRun);

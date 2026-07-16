@@ -1,5 +1,11 @@
 import { type Page } from 'playwright';
-import { selectors, CAIXA_URL, LOGGED_IN_URL_FRAGMENT } from './selectors.js';
+import {
+  selectors,
+  CAIXA_URL,
+  CARRINHOS_FAVORITOS_URL,
+  CARRINHO_URL,
+  LOGGED_IN_URL_FRAGMENT,
+} from './selectors.js';
 import { type Secrets } from './secrets.js';
 import { type Logger } from './logger.js';
 import { fetchLatestCaixaEmail, pollForOtp } from './otp.js';
@@ -44,11 +50,21 @@ export async function acceptTermsIfPresent(page: Page, log: Logger): Promise<voi
  * Drive the Keycloak login up to REQUESTING the email code.
  * Order (real CAIXA flow): CPF -> "Próximo" -> pick email -> "Receber código".
  * The OTP email is sent at the end of this function.
+ *
+ * Returns 'ALREADY' if the persistent profile is still authenticated (in which
+ * case the caller must NOT call submitOtpAndPassword), else 'CODE_REQUESTED'.
  */
-export async function login(page: Page, secrets: Secrets, log: Logger): Promise<void> {
+export async function login(page: Page, secrets: Secrets, log: Logger): Promise<'ALREADY' | 'CODE_REQUESTED'> {
   await page.goto(CAIXA_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
+
+  // Persistent profile may still be logged in — skip the whole login if so.
+  const loggedIn = page.locator(selectors.home.loggedInIndicator);
+  if ((await loggedIn.count()) && (await loggedIn.first().isVisible().catch(() => false))) {
+    log.step('login-already', 'ok');
+    return 'ALREADY';
+  }
 
   const loginLink = page.locator(selectors.home.loginLink);
   await loginLink.waitFor({ timeout: 15_000 }).catch(() => {
@@ -66,6 +82,7 @@ export async function login(page: Page, secrets: Secrets, log: Logger): Promise<
   await page.check(selectors.login.mailRadio).catch(() => {});
   await page.click(selectors.login.requestCodeButton);
   log.step('login-request-code', 'ok');
+  return 'CODE_REQUESTED';
 }
 
 /**
@@ -128,28 +145,37 @@ export async function selectCarrinhoFavoritoAndCheckout(
   cardLast4: string,
   log: Logger,
 ): Promise<CheckoutInfo> {
-  await page.click(selectors.carrinhos.menuTab);
+  await page.goto(CARRINHOS_FAVORITOS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  await sleep(3000);
+  await acceptTermsIfPresent(page, log);
   await page.waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 }).catch(() => {
-    throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou.');
+    throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou (nenhum carrinho salvo?).');
   });
 
-  // Defensive cart selection: prefer a row whose text matches the configured
-  // name; fall back to the first include icon only if there is exactly one cart.
-  const named = page.locator(`*:has-text("${secrets.caixaCarrinhoFavorito}")`).locator(selectors.carrinhos.includeIcon);
-  const icons = page.locator(selectors.carrinhos.includeIcon);
-  if ((await named.count()) >= 1) {
-    await named.first().click();
-  } else if ((await icons.count()) === 1) {
-    await icons.first().click();
+  // Select the RIGHT cart: the table row whose text contains the configured
+  // cart name, then click the include icon within that row.
+  const rows = page
+    .locator(selectors.carrinhos.rowContainer)
+    .filter({ has: page.locator(selectors.carrinhos.includeIcon) });
+  const target = rows.filter({ hasText: secrets.caixaCarrinhoFavorito });
+  const matched = await target.count();
+  if (matched === 1) {
+    await target.locator(selectors.carrinhos.includeIcon).click();
+  } else if (matched === 0 && (await rows.count()) === 1) {
+    await rows.locator(selectors.carrinhos.includeIcon).click();
   } else {
     throw new AbortBeforePayment(
-      `Não consegui identificar com segurança o carrinho "${secrets.caixaCarrinhoFavorito}" entre ${await icons.count()} carrinhos. Ajustar seletor.`,
+      `Esperava exatamente 1 carrinho com o nome "${secrets.caixaCarrinhoFavorito}", encontrei ${matched} (de ${await rows.count()} carrinhos). Ajuste CAIXA_CARRINHO_FAVORITO para bater com a linha certa.`,
     );
   }
+  await sleep(1500);
 
-  // Go to cart, then to payment
+  // Go to the cart page, then proceed to payment.
+  await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  await sleep(2500);
+  await acceptTermsIfPresent(page, log);
   await page.waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 }).catch(() => {
-    throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho.');
+    throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
   });
   await page.click(selectors.carrinho.goToPaymentButton);
 
