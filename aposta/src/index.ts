@@ -72,15 +72,23 @@ async function runBet(dryRun: boolean): Promise<void> {
       console.log('CVV inválido (esperado 3–4 dígitos). Verifique CAIXA_CARD_CVV no .env. Nenhuma aposta feita.');
       return;
     }
-    await payAndConfirm(page, cvv, log);
+    const payStatus = await payAndConfirm(page, cvv, log);
 
-    // Capture proof (screenshot) — the confirmation-number selector is not yet
-    // pinned, so the screenshot + the official channel are the source of truth.
+    // Screenshot proof either way (helps diagnose a failure too).
     fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
     const id = `${info.contest || 'sem-concurso'}-${Date.now()}`;
     const screenshotPath = path.join(RECEIPTS_DIR, `${id}.png`);
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(3000);
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+
+    if (payStatus === 'FAILED') {
+      console.log('\n⚠️ Pagamento NÃO concluído: o popup do CVV continuou aberto (o site pediu/rejeitou o CVV).');
+      console.log(`   Nenhuma aposta confirmada. Screenshot do estado salvo em ${screenshotPath}`);
+      console.log('   Confira no site/app da CAIXA antes de tentar de novo (para não apostar em duplicidade).');
+      process.exitCode = 1;
+      return;
+    }
+
     const record: ReceiptRecord = {
       id, lottery: info.lottery, contest: info.contest, amount: info.amount,
       cardLast4: info.cardLast4, confirmationNumber: '', screenshotPath, pdfPath: '',

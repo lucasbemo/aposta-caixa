@@ -305,19 +305,42 @@ export async function selectCardByLast4(page: Page, last4: string): Promise<void
  * (#confirmarModalConfirmacao) EXACTLY ONCE. Never retried. Returns when the
  * confirm click is submitted; the caller reconciles the result.
  */
-export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<void> {
+export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<'SUBMITTED' | 'FAILED'> {
   await dismissBlockingModals(page);
   await page.click(selectors.checkout.proceedButton); // "Continuar" -> opens CVV popup
   await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Popup de CVV não apareceu após "Continuar".');
   });
-  // There are two #securityCode inputs (one hidden, pre-rendered) — fill the VISIBLE one.
-  await page.locator(`${selectors.payment.cvvInput}:visible`).first().fill(cvv);
+
+  // Two #securityCode inputs exist (one hidden). Target the VISIBLE one, and
+  // TYPE the CVV char-by-char so Angular's ng-keyup/ui-mask handlers fire
+  // (page.fill sets the DOM value without updating vm.securityCode).
+  const field = page.locator(`${selectors.payment.cvvInput}:visible`).first();
+  await field.click();
+  await field.fill('');
+  await field.pressSequentially(cvv, { delay: 90 });
+  await field.blur().catch(() => {}); // ng-blur -> vm.mudaCartao()
+  await sleep(1000);
+  const entered = (await field.inputValue().catch(() => '')).replace(/\D/g, '');
+  if (entered.length < 3) {
+    throw new AbortBeforePayment(`CVV não registrou no campo (lido: "${entered}"). Aposta não feita.`);
+  }
   log.step('cvv-filled', 'ok');
+  await sleep(500);
+
   // SINGLE submit — the real payment. Never retried.
-  const confirm = page.locator(`${selectors.payment.confirmButton}:visible`);
-  await confirm.first().click();
+  await page.locator(`${selectors.payment.confirmButton}:visible`).first().click();
   log.step('payment-submitted', 'ok');
+
+  // Verify: on success the CVV popup closes. If it is still open (or a
+  // validation alert appeared asking for the CVV), the bet was NOT placed.
+  await sleep(3500);
+  const cvvStillOpen = await page.locator(`${selectors.payment.cvvInput}:visible`).count().catch(() => 0);
+  if (cvvStillOpen) {
+    log.step('payment-verify', 'fail');
+    return 'FAILED';
+  }
+  return 'SUBMITTED';
 }
 
 // Read best-effort; a selector still set to 'CONFIRMAR' is treated as unknown.
