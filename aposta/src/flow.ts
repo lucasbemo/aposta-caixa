@@ -281,28 +281,42 @@ export async function selectCarrinhoFavoritoAndCheckout(
 }
 
 /**
- * Choose the saved card whose label contains the last 4 digits. The saved-card
- * list loads asynchronously, so poll for up to ~24s for the option to appear
- * (clearing blocking alerts each round).
+ * Select the saved card by clicking the cell that shows "**** <last4>"
+ * (ng-click vm.opcoesCollapse). Polls for it to appear, clearing alerts.
  */
 export async function selectCardByLast4(page: Page, last4: string): Promise<void> {
   const deadline = Date.now() + 24_000;
   while (Date.now() < deadline) {
     await dismissBlockingModals(page);
-    const options = await page.locator(`${selectors.checkout.cardSelect} option`).all();
-    for (const opt of options) {
-      const label = (await opt.innerText().catch(() => '')).trim();
-      if (label.includes(last4)) {
-        const value = await opt.getAttribute('value');
-        if (value !== null) {
-          await page.selectOption(selectors.checkout.cardSelect, value);
-          return;
-        }
-      }
+    const cell = page.locator(selectors.checkout.cardCellByLast4(last4)).first();
+    if ((await cell.count()) && (await cell.isVisible().catch(() => false))) {
+      await cell.click().catch(() => {});
+      await sleep(1500);
+      return;
     }
     await sleep(2000);
   }
   throw new AbortBeforePayment(`Cartão terminado em ${last4} não encontrado no checkout (após aguardar carregar).`);
+}
+
+/**
+ * TASK 11 — REAL PAYMENT. Card must already be selected. Clicks "Continuar"
+ * (#pay) to open the CVV popup, fills the CVV, and clicks "Confirmar"
+ * (#confirmarModalConfirmacao) EXACTLY ONCE. Never retried. Returns when the
+ * confirm click is submitted; the caller reconciles the result.
+ */
+export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<void> {
+  await dismissBlockingModals(page);
+  await page.click(selectors.checkout.proceedButton); // "Continuar" -> opens CVV popup
+  await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
+    throw new AbortBeforePayment('Popup de CVV não apareceu após "Continuar".');
+  });
+  await page.fill(selectors.payment.cvvInput, cvv);
+  log.step('cvv-filled', 'ok');
+  // SINGLE submit — the real payment. Never retried.
+  const confirm = page.locator(`${selectors.payment.confirmButton}:visible`);
+  await confirm.first().click();
+  log.step('payment-submitted', 'ok');
 }
 
 // Read best-effort; a selector still set to 'CONFIRMAR' is treated as unknown.

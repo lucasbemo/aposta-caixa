@@ -51,22 +51,20 @@ export const selectors = {
   },
 
   checkout: {
-    // NOTE: in the automated flow the saved-card <select id="cardId"> did NOT
-    // render/populate on the payment page (only a "terminado em" placeholder),
-    // and the "Continuar"/CVV controls were not visible — the payment-method
-    // step ("#container-meio-pagamento") needs interaction the automation has
-    // not reliably reproduced. This is why the design leans to HITL at payment.
-    cardSelect: 'select#cardId', // saved-card select (seen in a manual session; not reliable via automation)
-    proceedButton: 'button#pay', // "Continuar" -> opens the CVV confirmation modal
-    totalAmount: 'span#valortotalapostas', // e.g. "R$ 78,00" — confirmed live
+    // The saved card is NOT a <select>: it's a clickable row/cell showing
+    // "**** <last4>" with ng-click="vm.opcoesCollapse(false, cartao, meio.id)".
+    // Mapped from a real user click. Select by clicking the cell with the last4.
+    cardCellByLast4: (l4: string) => `td:has-text("${l4}"), h4:has-text("${l4}")`,
+    proceedButton: 'button#pay', // "Continuar" (ng-click vm.abreModal()) -> opens the CVV popup
+    totalAmount: 'span#valortotalapostas', // e.g. "R$ 26,00" — confirmed live
     contestNumber: 'CONFIRMAR', // label "Concurso:" exists; value element not yet pinned
   },
 
-  // CVV confirmation modal (shown after clicking checkout.proceedButton).
+  // CVV popup (shown after clicking checkout.proceedButton / #pay).
   payment: {
     cvvInput: 'input#securityCode',
-    confirmButton: 'button#confirmarModalConfirmacao', // "Confirmar" == FINAL PAYMENT
-    cancelButton: 'button.data-cancelar-modal-confirmacao', // "Cancelar"
+    confirmButton: 'button#confirmarModalConfirmacao', // "Confirmar" == FINAL PAYMENT (mapped from real click)
+    cancelButton: 'button:has-text("Cancelar")',
   },
 
   receipt: {

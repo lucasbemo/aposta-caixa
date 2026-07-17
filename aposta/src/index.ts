@@ -8,13 +8,13 @@ import { loadSecrets } from './secrets.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { launchBrowser, closeBrowser } from './browser.js';
-import { formatConfirmation, checkSpendGuardrail } from './payment.js';
-import { readHistory } from './receipt.js';
+import { formatConfirmation, checkSpendGuardrail, promptHiddenCvv, validateCvv } from './payment.js';
+import { readHistory, appendHistory, type ReceiptRecord } from './receipt.js';
 import {
   login,
   submitOtpAndPassword,
   selectCarrinhoFavoritoAndCheckout,
-  debugVisibleControls,
+  payAndConfirm,
   AbortBeforePayment,
 } from './flow.js';
 
@@ -49,18 +49,41 @@ async function runBet(dryRun: boolean): Promise<void> {
     const info = await selectCarrinhoFavoritoAndCheckout(page, secrets, config.defaultCardLast4, log);
     if (Number.isFinite(info.amount)) checkSpendGuardrail(info.amount, config.maxAmountPerRun);
 
-    // Capture the checkout DOM so the remaining CONFIRMAR selectors (amount,
-    // contest, receipt) can be finalized safely.
-    fs.mkdirSync(DUMP_DIR, { recursive: true });
-    fs.writeFileSync(path.join(DUMP_DIR, 'live_checkout.txt'), await debugVisibleControls(page));
+    console.log(`\n${formatConfirmation(info)}`);
 
-    console.log(`\nNo checkout: ${formatConfirmation(info)}`);
-    console.log('Dump do checkout salvo em dom-dumps/live_checkout.txt');
-    console.log(
-      dryRun
-        ? 'DRY-RUN: parando antes do pagamento. Nenhuma aposta feita.'
-        : 'PAGAMENTO REAL ainda não habilitado (Task 11 pende validação do dry-run). Parando antes de pagar.',
-    );
+    if (dryRun) {
+      console.log('DRY-RUN: cartão selecionado, parando antes do pagamento. Nenhuma aposta feita.');
+      return;
+    }
+
+    // --- REAL PAYMENT (Task 11) ---
+    const proceed = await askLine(`Confirmar e PAGAR ${formatConfirmation(info)}? Digite SIM para pagar: `);
+    if (proceed.trim().toUpperCase() !== 'SIM') {
+      console.log('Cancelado pelo usuário. Nenhuma aposta feita.');
+      return;
+    }
+    const cvv = await promptHiddenCvv('Digite o CVV do cartão (não é armazenado): ');
+    if (!validateCvv(cvv)) {
+      console.log('CVV inválido (esperado 3–4 dígitos). Nenhuma aposta feita.');
+      return;
+    }
+    await payAndConfirm(page, cvv, log);
+
+    // Capture proof (screenshot) — the confirmation-number selector is not yet
+    // pinned, so the screenshot + the official channel are the source of truth.
+    fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+    const id = `${info.contest || 'sem-concurso'}-${Date.now()}`;
+    const screenshotPath = path.join(RECEIPTS_DIR, `${id}.png`);
+    await page.waitForTimeout(5000);
+    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+    const record: ReceiptRecord = {
+      id, lottery: info.lottery, contest: info.contest, amount: info.amount,
+      cardLast4: info.cardLast4, confirmationNumber: '', screenshotPath, pdfPath: '',
+      placedAt: new Date().toISOString(), status: 'CONFIRMED',
+    };
+    appendHistory(HISTORY_PATH, record);
+    console.log(`\n✅ Pagamento enviado. Comprovante (screenshot) salvo em ${screenshotPath}`);
+    console.log('   Confira a confirmação oficial no site/app das Loterias CAIXA.');
   } catch (err) {
     if (err instanceof AbortBeforePayment) {
       console.error(`Abortado com segurança antes do pagamento: ${(err as Error).message}`);
