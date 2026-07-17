@@ -62,9 +62,14 @@ async function runBet(dryRun: boolean): Promise<void> {
       console.log('Cancelado pelo usuário. Nenhuma aposta feita.');
       return;
     }
-    const cvv = await promptHiddenCvv('Digite o CVV do cartão (não é armazenado): ');
+    let cvv = secrets.caixaCardCvv;
+    if (cvv) {
+      console.log('CVV carregado do .env (auto-preenchimento).');
+    } else {
+      cvv = await promptHiddenCvv('Digite o CVV do cartão (não é armazenado): ');
+    }
     if (!validateCvv(cvv)) {
-      console.log('CVV inválido (esperado 3–4 dígitos). Nenhuma aposta feita.');
+      console.log('CVV inválido (esperado 3–4 dígitos). Verifique CAIXA_CARD_CVV no .env. Nenhuma aposta feita.');
       return;
     }
     await payAndConfirm(page, cvv, log);

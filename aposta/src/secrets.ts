@@ -7,6 +7,9 @@ export interface Secrets {
   caixaCarrinhoFavorito: string;
   gmailAddress: string;
   gmailAppPassword: string;
+  /** OPTIONAL card CVV for auto-fill. Storing it reverses the "CVV never
+   * persisted" design — plaintext in .env. If unset, the CLI prompts for it. */
+  caixaCardCvv?: string;
 }
 
 const REQUIRED = [
@@ -32,5 +35,6 @@ export function loadSecrets(envPath: string): Secrets {
     caixaCarrinhoFavorito: parsed.CAIXA_CARRINHO_FAVORITO,
     gmailAddress: parsed.GMAIL_ADDRESS,
     gmailAppPassword: parsed.GMAIL_APP_PASSWORD,
+    caixaCardCvv: parsed.CAIXA_CARD_CVV || undefined, // optional
   };
 }
