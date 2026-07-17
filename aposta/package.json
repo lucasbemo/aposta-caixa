@@ -1,6 +1,14 @@
 {
   "name": "aposta",
   "version": "0.1.0",
+  "description": "CLI pessoal para repetir apostas salvas nas Loterias CAIXA (login + OTP automático via IMAP, pagamento e comprovante).",
+  "license": "MIT",
+  "author": "Lucas Zamboni",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/<seu-usuario>/aposta-caixa.git"
+  },
+  "keywords": ["caixa", "loterias", "cli", "playwright", "automation", "mega-sena", "lotofacil"],
   "type": "module",
   "bin": { "aposta": "dist/index.js" },
   "scripts": {
