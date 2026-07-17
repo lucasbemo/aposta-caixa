@@ -311,7 +311,8 @@ export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promi
   await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Popup de CVV não apareceu após "Continuar".');
   });
-  await page.fill(selectors.payment.cvvInput, cvv);
+  // There are two #securityCode inputs (one hidden, pre-rendered) — fill the VISIBLE one.
+  await page.locator(`${selectors.payment.cvvInput}:visible`).first().fill(cvv);
   log.step('cvv-filled', 'ok');
   // SINGLE submit — the real payment. Never retried.
   const confirm = page.locator(`${selectors.payment.confirmButton}:visible`);
