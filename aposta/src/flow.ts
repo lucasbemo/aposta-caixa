@@ -247,14 +247,14 @@ export async function selectCardByLast4(page: Page, last4: string): Promise<void
   throw new AbortBeforePayment(`Cartão terminado em ${last4} não encontrado no checkout.`);
 }
 
-// Amount/contest selectors are still CONFIRMAR — read best-effort; the dry-run pins them down.
+// Read best-effort; a selector still set to 'CONFIRMAR' is treated as unknown.
 async function readAmount(page: Page): Promise<number> {
-  if (selectors.checkout.totalAmount === 'CONFIRMAR') return NaN;
+  if ((selectors.checkout.totalAmount as string) === 'CONFIRMAR') return NaN;
   const t = await page.locator(selectors.checkout.totalAmount).innerText().catch(() => '');
   return parseAmount(t);
 }
 async function readContest(page: Page): Promise<string> {
-  if (selectors.checkout.contestNumber === 'CONFIRMAR') return '';
+  if ((selectors.checkout.contestNumber as string) === 'CONFIRMAR') return '';
   return (await page.locator(selectors.checkout.contestNumber).innerText().catch(() => '')).trim();
 }
 
