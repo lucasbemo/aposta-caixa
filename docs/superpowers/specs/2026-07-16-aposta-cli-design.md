@@ -105,7 +105,7 @@ do desenho original — registrado aqui honestamente:
   incluindo o CVV. O CVV é digitado tecla por tecla (o campo é Angular `ng-keyup` +
   `ui-mask` — `fill()` não registra) e pode ser **auto-preenchido do `.env`**
   (`CAIXA_CARD_CVV`, opcional e desencorajado) ou digitado no terminal.
-- **O cartão salvo não é um `<select>`** — é uma célula clicável mostrando "**** 9088"
+- **O cartão salvo não é um `<select>`** — é uma célula clicável mostrando "**** 1234"
   (`ng-click="vm.opcoesCollapse(...)"`).
 - **Campo minado de popups.** O site abre muitos modais. Alertas bloqueiam cliques e são
   fechados com "Fechar" (`#fecharModalAlerta`); confirmações usam botões de **texto

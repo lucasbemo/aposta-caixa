@@ -82,7 +82,11 @@ CAIXA_CARD_CVV=            # OPCIONAL — ver aviso de segurança abaixo
 
 Para gerar o Gmail App Password, acesse [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) — a conta precisa ter a verificação em 2 etapas (2FA) ativada.
 
-Ajuste também o `config.json`:
+Copie `config.example.json` para `config.json` e ajuste:
+
+```bash
+cp config.example.json config.json
+```
 
 - `defaultCardLast4`: últimos 4 dígitos do cartão a ser selecionado no pagamento.
 - `maxAmountPerRun`: valor máximo (R$) aceito por execução, como trava de segurança.
@@ -111,7 +115,7 @@ Exemplo de saída (`bet --dry-run`):
 [step] clear-cart — ok
 [step] checkout-ready — ok
 
-2Mega 4Facil # · R$ 26.00 · cartão •••• 9088
+Meu Jogo # · R$ 26.00 · cartão •••• 1234
 DRY-RUN: cartão selecionado, parando antes do pagamento. Nenhuma aposta feita.
 ```
 

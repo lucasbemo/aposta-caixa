@@ -209,7 +209,7 @@ Exemplo de saída (dry-run):
 [step] clear-cart — ok
 [step] checkout-ready — ok
 
-2Mega 4Facil # · R$ 26.00 · cartão •••• 9088
+Meu Jogo # · R$ 26.00 · cartão •••• 1234
 DRY-RUN: cartão selecionado, parando antes do pagamento. Nenhuma aposta feita.
 ```
 
@@ -227,7 +227,7 @@ Licença: uma linha — "Distribuído sob a licença MIT. Ver [LICENSE](LICENSE)
 
 - [ ] **Step 9: Verificar o README — sem segredos, comandos reais, Mermaid**
 
-Run: `cd /Users/lucas/workspace/caixa-loteria && grep -nE "olucaszamboni|[0-9]{11}|CAIXA_PASSWORD=[^ ]*[a-zA-Z0-9]{4}" README.md || echo "OK: sem segredos aparentes"`
+Run: `cd /Users/lucas/workspace/caixa-loteria && grep -nE "email@exemplo|[0-9]{11}|CAIXA_PASSWORD=[^ ]*[a-zA-Z0-9]{4}" README.md || echo "OK: sem segredos aparentes"`
 Expected: `OK: sem segredos aparentes` (nenhum CPF real de 11 dígitos, e-mail real, ou senha preenchida).
 
 Run: `cd /Users/lucas/workspace/caixa-loteria && grep -c "mermaid" README.md && grep -oE "dist/index.js (bet|comprovante|history|setup)" README.md | sort -u`
