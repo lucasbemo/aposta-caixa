@@ -53,7 +53,7 @@ flowchart TD
 ## Instalação
 
 ```bash
-git clone https://github.com/<seu-usuario>/aposta-caixa.git
+git clone https://github.com/lucasbemo/aposta-caixa.git
 cd aposta-caixa/aposta
 npm install
 npx playwright install chromium

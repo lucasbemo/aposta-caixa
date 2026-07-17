@@ -6,7 +6,7 @@
   "author": "Lucas Zamboni",
   "repository": {
     "type": "git",
-    "url": "https://github.com/<seu-usuario>/aposta-caixa.git"
+    "url": "https://github.com/lucasbemo/aposta-caixa.git"
   },
   "keywords": ["caixa", "loterias", "cli", "playwright", "automation", "mega-sena", "lotofacil"],
   "type": "module",
