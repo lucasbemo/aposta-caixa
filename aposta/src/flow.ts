@@ -133,16 +133,41 @@ export async function submitOtpAndPassword(
 }
 
 /**
+ * Close blocking ALERT/INFO/ERROR modals (the "Fechar" ones). This site pops
+ * many of them (e.g. "existem apostas idênticas no carrinho") and a visible
+ * `<div id="alert" class="modal in">` intercepts ALL clicks until dismissed.
+ * Call this before any action. Loops a few times since closing one can reveal
+ * another.
+ */
+export async function dismissBlockingModals(page: Page): Promise<void> {
+  const closeIds = [
+    '#fecharModalAlerta',
+    '#fecharModalAlertaSobreModal',
+    '#fecharModalErro',
+    '#fecharModalInfo',
+  ];
+  for (let round = 0; round < 4; round++) {
+    let closedAny = false;
+    for (const id of closeIds) {
+      const b = page.locator(`${id}:visible`);
+      if (await b.count()) {
+        await b.first().click().catch(() => {});
+        await sleep(700);
+        closedAny = true;
+      }
+    }
+    if (!closedAny) return;
+  }
+}
+
+/**
  * Click the CURRENTLY VISIBLE confirmation button. The id
  * #confirmarModalConfirmacao is reused across many hidden, pre-rendered Angular
  * modals, so we must target the visible one (`:visible`), not the first match.
  */
 export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
-  for (const sel of [
-    'button#confirmarModalConfirmacao:visible',
-    'button:visible:has-text("Confirmar")',
-    'button:visible:has-text("Sim")',
-  ]) {
+  // id-based confirms first (most specific)
+  for (const sel of ['button#confirmarModalConfirmacao:visible', 'button#confirmarModalSim:visible']) {
     const loc = page.locator(sel);
     if (await loc.count()) {
       await loc.first().click().catch(() => {});
@@ -150,19 +175,39 @@ export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
       return true;
     }
   }
+  // Affirmative buttons on this site's confirmation modals (all learned from
+  // real popups): "Confirmar", "Sim", "Continuar" (e.g. clear-cart), and
+  // "Incluir no carrinho" (the "carrinho adicionado recentemente" popup).
+  // EXACT match so we never hit "Continuar apostando". Click the visible one.
+  for (const name of ['Confirmar', 'Sim', 'Continuar', 'Incluir no carrinho']) {
+    const btn = page.getByRole('button', { name, exact: true });
+    const n = await btn.count();
+    for (let i = 0; i < n; i++) {
+      const b = btn.nth(i);
+      if (await b.isVisible().catch(() => false)) {
+        await b.click().catch(() => {});
+        await sleep(2000);
+        return true;
+      }
+    }
+  }
   return false;
 }
 
-/** Empty the cart so it holds exactly the intended bet (confirm the popup). */
+/** Empty the cart so it holds exactly the intended bet. Handles the blocking
+ * "identical bets" alert, then the "Limpar carrinho" confirmation. */
 export async function clearCart(page: Page, log: Logger): Promise<void> {
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
+  await dismissBlockingModals(page); // "existem apostas idênticas" alert blocks clicks
   const clear = page.locator(selectors.carrinho.clearCartButton);
   if (await clear.count()) {
     await clear.click().catch(() => {});
     await sleep(1200);
-    await clickVisibleModalConfirm(page);
+    await clickVisibleModalConfirm(page); // "deseja limpar o carrinho?" -> Confirmar
+    await sleep(1500);
+    await dismissBlockingModals(page); // any follow-up alert
     log.step('clear-cart', 'ok');
   }
 }
@@ -183,6 +228,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await page.goto(CARRINHOS_FAVORITOS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
+  await dismissBlockingModals(page);
   await page.waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou (nenhum carrinho salvo?).');
   });
@@ -209,6 +255,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
+  await dismissBlockingModals(page);
   await page.waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
   });
@@ -216,11 +263,13 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await sleep(1200);
   await clickVisibleModalConfirm(page); // "prosseguir para pagamento" popup
 
-  // Wait for the payment page to settle.
+  // Wait for the payment page to settle, then clear any blocking alert
+  // ("existem apostas idênticas") that would otherwise intercept clicks.
   await page
     .waitForURL((u) => /pagamento/i.test(u.toString()) && /loteriasonline/i.test(u.toString()), { timeout: 30_000 })
     .catch(() => {});
   await sleep(2500);
+  await dismissBlockingModals(page);
 
   // Best-effort card selection (do not throw — caller inspects the page).
   await selectCardByLast4(page, cardLast4).catch((e) => log.info(`Cartão não selecionado ainda: ${(e as Error).message}`));
@@ -231,20 +280,29 @@ export async function selectCarrinhoFavoritoAndCheckout(
   return { lottery: secrets.caixaCarrinhoFavorito, contest, amount, cardLast4 };
 }
 
-/** Choose the option in select#cardId whose label contains the last 4 digits. */
+/**
+ * Choose the saved card whose label contains the last 4 digits. The saved-card
+ * list loads asynchronously, so poll for up to ~24s for the option to appear
+ * (clearing blocking alerts each round).
+ */
 export async function selectCardByLast4(page: Page, last4: string): Promise<void> {
-  const options = await page.locator(`${selectors.checkout.cardSelect} option`).all();
-  for (const opt of options) {
-    const label = (await opt.innerText()).trim();
-    if (label.includes(last4)) {
-      const value = await opt.getAttribute('value');
-      if (value !== null) {
-        await page.selectOption(selectors.checkout.cardSelect, value);
-        return;
+  const deadline = Date.now() + 24_000;
+  while (Date.now() < deadline) {
+    await dismissBlockingModals(page);
+    const options = await page.locator(`${selectors.checkout.cardSelect} option`).all();
+    for (const opt of options) {
+      const label = (await opt.innerText().catch(() => '')).trim();
+      if (label.includes(last4)) {
+        const value = await opt.getAttribute('value');
+        if (value !== null) {
+          await page.selectOption(selectors.checkout.cardSelect, value);
+          return;
+        }
       }
     }
+    await sleep(2000);
   }
-  throw new AbortBeforePayment(`Cartão terminado em ${last4} não encontrado no checkout.`);
+  throw new AbortBeforePayment(`Cartão terminado em ${last4} não encontrado no checkout (após aguardar carregar).`);
 }
 
 // Read best-effort; a selector still set to 'CONFIRMAR' is treated as unknown.
