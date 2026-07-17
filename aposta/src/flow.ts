@@ -305,7 +305,12 @@ export async function selectCardByLast4(page: Page, last4: string): Promise<void
  * (#confirmarModalConfirmacao) EXACTLY ONCE. Never retried. Returns when the
  * confirm click is submitted; the caller reconciles the result.
  */
-export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<'SUBMITTED' | 'FAILED'> {
+export interface PaymentOutcome {
+  status: 'SUBMITTED' | 'FAILED';
+  message: string; // the on-screen confirmation text, when captured
+}
+
+export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<PaymentOutcome> {
   await dismissBlockingModals(page);
   await page.click(selectors.checkout.proceedButton); // "Continuar" -> opens CVV popup
   await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
@@ -332,15 +337,31 @@ export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promi
   await page.locator(`${selectors.payment.confirmButton}:visible`).first().click();
   log.step('payment-submitted', 'ok');
 
-  // Verify: on success the CVV popup closes. If it is still open (or a
-  // validation alert appeared asking for the CVV), the bet was NOT placed.
-  await sleep(3500);
+  // The success message appears after a delay. Poll for up to ~30s: success is
+  // the CVV popup closing AND a confirmation message ("pagamento concluído /
+  // comprovante / sucesso") appearing. If the CVV popup stays open, it failed.
+  const SUCCESS = /(pagamento|aposta).{0,40}(conclu[ií]d|efetuad|realizad|sucesso)|comprovante|realizada com sucesso/i;
+  const deadline = Date.now() + 30_000;
+  let message = '';
+  while (Date.now() < deadline) {
+    await sleep(2500);
+    const cvvOpen = await page.locator(`${selectors.payment.cvvInput}:visible`).count().catch(() => 0);
+    const body = await page.evaluate(() => document.body.innerText).catch(() => '');
+    const m = body.match(SUCCESS);
+    if (m) message = m[0].replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (!cvvOpen && message) {
+      log.step('payment-confirmed', 'ok');
+      return { status: 'SUBMITTED', message };
+    }
+  }
   const cvvStillOpen = await page.locator(`${selectors.payment.cvvInput}:visible`).count().catch(() => 0);
   if (cvvStillOpen) {
     log.step('payment-verify', 'fail');
-    return 'FAILED';
+    return { status: 'FAILED', message: '' };
   }
-  return 'SUBMITTED';
+  // Popup closed but no explicit success text seen — treat as submitted-unknown.
+  log.step('payment-verify', 'ok');
+  return { status: 'SUBMITTED', message };
 }
 
 // Read best-effort; a selector still set to 'CONFIRMAR' is treated as unknown.

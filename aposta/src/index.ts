@@ -72,16 +72,15 @@ async function runBet(dryRun: boolean): Promise<void> {
       console.log('CVV inválido (esperado 3–4 dígitos). Verifique CAIXA_CARD_CVV no .env. Nenhuma aposta feita.');
       return;
     }
-    const payStatus = await payAndConfirm(page, cvv, log);
+    const outcome = await payAndConfirm(page, cvv, log);
 
     // Screenshot proof either way (helps diagnose a failure too).
     fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
     const id = `${info.contest || 'sem-concurso'}-${Date.now()}`;
     const screenshotPath = path.join(RECEIPTS_DIR, `${id}.png`);
-    await page.waitForTimeout(3000);
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
 
-    if (payStatus === 'FAILED') {
+    if (outcome.status === 'FAILED') {
       console.log('\n⚠️ Pagamento NÃO concluído: o popup do CVV continuou aberto (o site pediu/rejeitou o CVV).');
       console.log(`   Nenhuma aposta confirmada. Screenshot do estado salvo em ${screenshotPath}`);
       console.log('   Confira no site/app da CAIXA antes de tentar de novo (para não apostar em duplicidade).');
@@ -91,12 +90,13 @@ async function runBet(dryRun: boolean): Promise<void> {
 
     const record: ReceiptRecord = {
       id, lottery: info.lottery, contest: info.contest, amount: info.amount,
-      cardLast4: info.cardLast4, confirmationNumber: '', screenshotPath, pdfPath: '',
+      cardLast4: info.cardLast4, confirmationNumber: outcome.message, screenshotPath, pdfPath: '',
       placedAt: new Date().toISOString(), status: 'CONFIRMED',
     };
     appendHistory(HISTORY_PATH, record);
-    console.log(`\n✅ Pagamento enviado. Comprovante (screenshot) salvo em ${screenshotPath}`);
-    console.log('   Confira a confirmação oficial no site/app das Loterias CAIXA.');
+    console.log(`\n✅ Aposta confirmada! ${outcome.message || '(mensagem de confirmação não capturada)'}`);
+    console.log(`   Comprovante (screenshot) salvo em ${screenshotPath}`);
+    console.log('   Confira também no site/app das Loterias CAIXA.');
   } catch (err) {
     if (err instanceof AbortBeforePayment) {
       console.error(`Abortado com segurança antes do pagamento: ${(err as Error).message}`);
