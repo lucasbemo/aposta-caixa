@@ -6,6 +6,7 @@
 export const CAIXA_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/home';
 export const CARRINHOS_FAVORITOS_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/carrinhos/favoritos';
 export const CARRINHO_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/carrinho';
+export const COMPRAS_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/compras';
 export const KEYCLOAK_HOST = 'login.caixa.gov.br';
 export const LOGGED_IN_URL_FRAGMENT = '/silce-web/#/home';
 

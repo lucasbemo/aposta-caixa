@@ -15,6 +15,7 @@ import {
   submitOtpAndPassword,
   selectCarrinhoFavoritoAndCheckout,
   payAndConfirm,
+  saveComprovante,
   AbortBeforePayment,
 } from './flow.js';
 
@@ -73,29 +74,39 @@ async function runBet(dryRun: boolean): Promise<void> {
       return;
     }
     const outcome = await payAndConfirm(page, cvv, log);
-
-    // Screenshot proof either way (helps diagnose a failure too).
     fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
-    const id = `${info.contest || 'sem-concurso'}-${Date.now()}`;
-    const screenshotPath = path.join(RECEIPTS_DIR, `${id}.png`);
-    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
 
     if (outcome.status === 'FAILED') {
+      const failShot = path.join(RECEIPTS_DIR, `falha-${Date.now()}.png`);
+      await page.screenshot({ path: failShot, fullPage: true }).catch(() => {});
       console.log('\n⚠️ Pagamento NÃO concluído: o popup do CVV continuou aberto (o site pediu/rejeitou o CVV).');
-      console.log(`   Nenhuma aposta confirmada. Screenshot do estado salvo em ${screenshotPath}`);
+      console.log(`   Nenhuma aposta confirmada. Screenshot do estado salvo em ${failShot}`);
       console.log('   Confira no site/app da CAIXA antes de tentar de novo (para não apostar em duplicidade).');
       process.exitCode = 1;
       return;
     }
 
+    // Save the OFFICIAL comprovante (navigate to Compras -> newest -> full-page shot).
+    let numero = outcome.message;
+    let screenshotPath = '';
+    try {
+      const comp = await saveComprovante(page, RECEIPTS_DIR, log);
+      numero = comp.numero || outcome.message;
+      screenshotPath = comp.screenshotPath;
+    } catch (e) {
+      console.log(`(aviso: não consegui salvar o comprovante automaticamente: ${(e as Error).message})`);
+      screenshotPath = path.join(RECEIPTS_DIR, `pagamento-${Date.now()}.png`);
+      await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {});
+    }
+
     const record: ReceiptRecord = {
-      id, lottery: info.lottery, contest: info.contest, amount: info.amount,
-      cardLast4: info.cardLast4, confirmationNumber: outcome.message, screenshotPath, pdfPath: '',
+      id: numero || `${Date.now()}`, lottery: info.lottery, contest: info.contest, amount: info.amount,
+      cardLast4: info.cardLast4, confirmationNumber: numero, screenshotPath, pdfPath: '',
       placedAt: new Date().toISOString(), status: 'CONFIRMED',
     };
     appendHistory(HISTORY_PATH, record);
-    console.log(`\n✅ Aposta confirmada! ${outcome.message || '(mensagem de confirmação não capturada)'}`);
-    console.log(`   Comprovante (screenshot) salvo em ${screenshotPath}`);
+    console.log(`\n✅ Aposta confirmada! Número da compra: ${numero || '(n/d)'}`);
+    console.log(`   Comprovante salvo em ${screenshotPath}`);
     console.log('   Confira também no site/app das Loterias CAIXA.');
   } catch (err) {
     if (err instanceof AbortBeforePayment) {
@@ -109,8 +120,36 @@ async function runBet(dryRun: boolean): Promise<void> {
   }
 }
 
+async function runComprovante(): Promise<void> {
+  const log = createLogger();
+  const secrets = loadSecrets(ENV_PATH);
+  const config = loadConfig(CONFIG_PATH);
+  const { context, page } = await launchBrowser(PROFILE_DIR);
+  try {
+    const state = await login(page, secrets, log);
+    if (state === 'CODE_REQUESTED') {
+      await submitOtpAndPassword(page, secrets, config.otpPollTimeoutSec, log, () =>
+        askLine('Cole o código do e-mail: '),
+      );
+    }
+    fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
+    const comp = await saveComprovante(page, RECEIPTS_DIR, log);
+    console.log(`\n✅ Comprovante da compra ${comp.numero || '(n/d)'} salvo em ${comp.screenshotPath}`);
+  } catch (err) {
+    console.error(`Erro: ${(err as Error).message}`);
+    process.exitCode = 1;
+  } finally {
+    await closeBrowser(context);
+  }
+}
+
 const program = new Command();
 program.name(APP_NAME).description('Repete uma aposta salva nas Loterias CAIXA');
+
+program
+  .command('comprovante')
+  .description('Salva o comprovante (screenshot) da compra mais recente')
+  .action(() => runComprovante());
 
 program
   .command('bet')

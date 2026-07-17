@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { type Page } from 'playwright';
 import {
   selectors,
   CAIXA_URL,
   CARRINHOS_FAVORITOS_URL,
   CARRINHO_URL,
+  COMPRAS_URL,
   LOGGED_IN_URL_FRAGMENT,
 } from './selectors.js';
 import { type Secrets } from './secrets.js';
@@ -373,6 +375,37 @@ async function readAmount(page: Page): Promise<number> {
 async function readContest(page: Page): Promise<string> {
   if ((selectors.checkout.contestNumber as string) === 'CONFIRMAR') return '';
   return (await page.locator(selectors.checkout.contestNumber).innerText().catch(() => '')).trim();
+}
+
+/**
+ * Save the OFFICIAL comprovante for the most recent purchase. Navigates to
+ * "Compras", opens the newest purchase's "Detalhamento da compra"
+ * (#/compras/{id}), and takes a FULL-PAGE screenshot. Returns the purchase
+ * number and the screenshot path. Best-effort: throws only if the purchases
+ * list never loads.
+ */
+export async function saveComprovante(
+  page: Page,
+  receiptsDir: string,
+  log: Logger,
+): Promise<{ numero: string; screenshotPath: string }> {
+  await page.goto(COMPRAS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+  await sleep(4000);
+  await dismissBlockingModals(page);
+
+  // The newest purchase is the first "Detalhamento da compra" link
+  // (a[ng-click*="verDetalheCompra"]); its text is the purchase number.
+  const link = page.locator('a[ng-click*="verDetalheCompra"]').first();
+  await link.waitFor({ timeout: 20_000 });
+  const numero = (await link.innerText().catch(() => '')).trim().replace(/\s+/g, '');
+  await link.click();
+  await sleep(5000);
+  await dismissBlockingModals(page);
+
+  const screenshotPath = path.join(receiptsDir, `comprovante-${numero || 'sem-numero'}-${Date.now()}.png`);
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  log.step('comprovante-salvo', 'ok');
+  return { numero, screenshotPath };
 }
 
 /**
