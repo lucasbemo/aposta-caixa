@@ -51,10 +51,15 @@ export const selectors = {
   },
 
   checkout: {
-    cardSelect: 'select#cardId', // <select> of saved cards; options like "Mastercard terminado em 9088"
+    // NOTE: in the automated flow the saved-card <select id="cardId"> did NOT
+    // render/populate on the payment page (only a "terminado em" placeholder),
+    // and the "Continuar"/CVV controls were not visible — the payment-method
+    // step ("#container-meio-pagamento") needs interaction the automation has
+    // not reliably reproduced. This is why the design leans to HITL at payment.
+    cardSelect: 'select#cardId', // saved-card select (seen in a manual session; not reliable via automation)
     proceedButton: 'button#pay', // "Continuar" -> opens the CVV confirmation modal
-    totalAmount: 'CONFIRMAR', // amount element — pin down in dry-run
-    contestNumber: 'CONFIRMAR', // contest element — pin down in dry-run
+    totalAmount: 'span#valortotalapostas', // e.g. "R$ 78,00" — confirmed live
+    contestNumber: 'CONFIRMAR', // label "Concurso:" exists; value element not yet pinned
   },
 
   // CVV confirmation modal (shown after clicking checkout.proceedButton).
