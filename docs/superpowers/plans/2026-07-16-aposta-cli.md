@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-Every task's requirements implicitly include these, copied verbatim from `PROD.md`:
+Every task's requirements implicitly include these, copied verbatim from `docs/PROD.md`:
 
 - **Never persist the CVV.** Memory only, masked input, zeroed after submit; never in disk, log, history, or screenshot. (NFR-01, FR-06)
 - **Never handle the full card number.** The card lives in the CAIXA account; only masked data (brand, last 4) is read. (NFR-01)
@@ -1278,7 +1278,7 @@ git add src/index.ts && git commit -m "feat: wire CLI commands setup/bet/bet --d
 
 ## Self-Review
 
-**Spec coverage** (each `PROD.md` item → task):
+**Spec coverage** (each `docs/PROD.md` item → task):
 
 - FR-01 secrets in .env chmod 600 → Task 2 ✓
 - FR-02 IMAP OTP poll → Task 5 (+ live wiring Task 9) ✓
