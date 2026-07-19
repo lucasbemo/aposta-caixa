@@ -54,19 +54,19 @@ flowchart TD
 
 ```bash
 git clone https://github.com/lucasbemo/aposta-caixa.git
-cd aposta-caixa/aposta
-npm install
-npx playwright install chromium
-npm run build
+cd aposta-caixa
+make install
+make build
 ```
+
+Prefere rodar sem `make`? Os comandos equivalentes estão em [docs/CLI.md](docs/CLI.md).
 
 ## Configuração
 
-Copie o arquivo de exemplo e restrinja a permissão do arquivo de segredos:
+Crie os arquivos de configuração a partir dos exemplos (o `.env` já sai com permissão `600`; nada é sobrescrito se os arquivos já existirem):
 
 ```bash
-cp .env.example .env
-chmod 600 .env
+make config
 ```
 
 Preencha o `.env` (valores abaixo são apenas placeholders):
@@ -82,11 +82,7 @@ CAIXA_CARD_CVV=            # OPCIONAL — ver aviso de segurança abaixo
 
 Para gerar o Gmail App Password, acesse [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) — a conta precisa ter a verificação em 2 etapas (2FA) ativada.
 
-Copie `config.example.json` para `config.json` e ajuste:
-
-```bash
-cp config.example.json config.json
-```
+No `config.json`, ajuste:
 
 - `defaultCardLast4`: últimos 4 dígitos do cartão a ser selecionado no pagamento.
 - `maxAmountPerRun`: valor máximo (R$) aceito por execução, como trava de segurança.
@@ -96,17 +92,19 @@ cp config.example.json config.json
 
 ## Uso
 
-Todos os comandos abaixo são executados de dentro da pasta `aposta/`:
+Todos os alvos são executados com `make`, a partir da raiz do repositório:
 
 | Comando | O que faz |
 |---|---|
-| `node dist/index.js bet --dry-run` | Roda o fluxo inteiro **parando antes do pagamento** (valida seletores sem apostar). |
-| `node dist/index.js bet` | Aposta **real**: pede confirmação "SIM", o CVV (se não estiver no `.env`), paga e salva o comprovante. |
-| `node dist/index.js comprovante` | Re-salva o comprovante (screenshot) da compra mais recente. |
-| `node dist/index.js history` | Lista as apostas registradas localmente. |
-| `node dist/index.js setup` | Mostra as instruções de configuração inicial. |
+| `make dry-run` | Roda o fluxo inteiro **parando antes do pagamento** (valida seletores sem apostar). |
+| `make bet` | Aposta **real**: pede confirmação "SIM", o CVV (se não estiver no `.env`), paga e salva o comprovante. |
+| `make comprovante` | Re-salva o comprovante (screenshot) da compra mais recente. |
+| `make history` | Lista as apostas registradas localmente. |
+| `make setup` | Mostra as instruções de configuração inicial. |
 
-Exemplo de saída (`bet --dry-run`):
+`make` sem argumentos lista todos os alvos (incluindo `install`, `config`, `build`, `all` e `test`). Os comandos `node` equivalentes estão em [docs/CLI.md](docs/CLI.md).
+
+Exemplo de saída (`make dry-run`):
 
 ```text
 [step] login-request-code — ok
@@ -157,8 +155,8 @@ tests/
 Comandos:
 
 ```bash
-npm test        # Vitest — 18 testes das partes puras (secrets, config, logger, otp, payment, receipt)
-npm run build   # compila TypeScript (tsc)
+make test     # Vitest — 18 testes das partes puras (secrets, config, logger, otp, payment, receipt)
+make build    # compila TypeScript (tsc)
 ```
 
 Os módulos de fluxo e navegador (`flow.ts`, `browser.ts`) dependem do site real das Loterias CAIXA e são validados **ao vivo** (via `bet --dry-run`), sem testes unitários automatizados.
