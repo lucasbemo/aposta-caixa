@@ -61,6 +61,7 @@ export async function login(page: Page, secrets: Secrets, log: Logger): Promise<
   await page.goto(CAIXA_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
+  await dismissBlockingModals(page, log); // promos pop on home (logged in OR out) and block all clicks
 
   // Persistent profile may still be logged in — skip the whole login if so.
   const loggedIn = page.locator(selectors.home.loggedInIndicator);
@@ -132,6 +133,7 @@ export async function submitOtpAndPassword(
   await page.waitForSelector(selectors.home.loggedInIndicator, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Não confirmei o login (indicador "Minha Conta" ausente).');
   });
+  await dismissBlockingModals(page, log); // fresh-login home is where promo modals appear most
   log.step('login-complete', 'ok');
 }
 
