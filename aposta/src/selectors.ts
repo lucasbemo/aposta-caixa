@@ -17,6 +17,16 @@ export const selectors = {
     acceptButtonTexts: ['Sim', 'Confirmar', 'Entendi'],
   },
 
+  // Promotion/notification modals (e.g. "LOTOFÁCIL DA INDEPENDÊNCIA") shown
+  // mainly on home. No stable ids — detected generically by container class.
+  // Design: docs/superpowers/specs/2026-07-19-promo-modal-guard-design.md
+  promo: {
+    modalContainer: '.modal.in',
+    backdrop: '.modal-backdrop.in',
+    closeButtonText: 'Fechar', // exact-match; never an affirmative button
+    dontShowAgainLabel: /não mostrar mais/i, // "Não mostrar mais essa notificação"
+  },
+
   home: {
     loginLink: 'a#btnLogin', // "Acessar" (shown when logged out)
     loggedInIndicator: 'a#suaconta', // "Minha Conta" (shown when logged in)

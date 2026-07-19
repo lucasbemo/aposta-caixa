@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { type Page } from 'playwright';
 import {
@@ -135,13 +136,20 @@ export async function submitOtpAndPassword(
 }
 
 /**
- * Close blocking ALERT/INFO/ERROR modals (the "Fechar" ones). This site pops
- * many of them (e.g. "existem apostas idênticas no carrinho") and a visible
- * `<div id="alert" class="modal in">` intercepts ALL clicks until dismissed.
- * Call this before any action. Loops a few times since closing one can reveal
- * another.
+ * Close blocking modals before acting. Per round (up to 4, since closing one
+ * can reveal another):
+ *   1. Known close-button ids (#fecharModal*) — alert/info/error modals.
+ *   2. Generic dismissable modals (promotions/notifications, no stable ids):
+ *      tick "Não mostrar mais essa notificação" when present (persistent
+ *      profile => suppresses repeats), then click the modal's exact-text
+ *      "Fechar" button.
+ * If a modal/backdrop is still visible afterwards: try Escape; if it survives,
+ * save evidence to dom-dumps/ and throw AbortBeforePayment so the run dies
+ * loudly BEFORE any bet action.
+ * NEVER clicks affirmative buttons (Confirmar/Sim/Continuar/Incluir no
+ * carrinho) — those belong to clickVisibleModalConfirm().
  */
-export async function dismissBlockingModals(page: Page): Promise<void> {
+export async function dismissBlockingModals(page: Page, log?: Logger): Promise<void> {
   const closeIds = [
     '#fecharModalAlerta',
     '#fecharModalAlertaSobreModal',
@@ -158,8 +166,71 @@ export async function dismissBlockingModals(page: Page): Promise<void> {
         closedAny = true;
       }
     }
-    if (!closedAny) return;
+
+    // Generic pass: visible promo/notification modal with a "Fechar" button.
+    const container = page.locator(`${selectors.promo.modalContainer}:visible`).first();
+    if (await container.count()) {
+      // Best-effort "Não mostrar mais" tick: labelled checkbox first, then
+      // checkbox inside a matching <label>, then the container's single
+      // visible checkbox when the text is present anywhere in it.
+      const byLabel = container.getByLabel(selectors.promo.dontShowAgainLabel);
+      const inLabel = container
+        .locator('label')
+        .filter({ hasText: selectors.promo.dontShowAgainLabel })
+        .locator('input[type="checkbox"]');
+      if (await byLabel.count()) {
+        await byLabel.first().check().catch(() => {});
+      } else if (await inLabel.count()) {
+        await inLabel.first().check().catch(() => {});
+      } else if (await container.getByText(selectors.promo.dontShowAgainLabel).count()) {
+        const cb = container.locator('input[type="checkbox"]:visible');
+        if ((await cb.count()) === 1) await cb.first().check().catch(() => {});
+      }
+
+      const fecharButton = container.getByRole('button', {
+        name: selectors.promo.closeButtonText,
+        exact: true,
+      });
+      const fecharText = container.getByText(selectors.promo.closeButtonText, { exact: true });
+      if (await fecharButton.count()) {
+        await fecharButton.first().click().catch(() => {});
+        await sleep(700);
+        log?.info('Modal de promoção/notificação fechado.');
+        closedAny = true;
+      } else if (await fecharText.count()) {
+        await fecharText.first().click().catch(() => {});
+        await sleep(700);
+        log?.info('Modal de promoção/notificação fechado.');
+        closedAny = true;
+      }
+    }
+
+    if (!closedAny) break;
   }
+
+  // Escalation: something is still blocking and we don't know how to close it.
+  const blocking = page.locator(
+    `${selectors.promo.modalContainer}:visible, ${selectors.promo.backdrop}:visible`,
+  );
+  if (!(await blocking.count())) return;
+  await page.keyboard.press('Escape').catch(() => {});
+  await sleep(1000);
+  if (!(await blocking.count())) return;
+
+  const ts = Date.now();
+  const dumpDir = path.resolve('dom-dumps');
+  const base = path.join(dumpDir, `modal_unknown_${ts}`);
+  try {
+    fs.mkdirSync(dumpDir, { recursive: true });
+    fs.writeFileSync(`${base}.txt`, await debugVisibleControls(page));
+  } catch {
+    // evidence is best-effort; never mask the abort
+  }
+  await page.screenshot({ path: `${base}.png`, fullPage: true }).catch(() => {});
+  log?.info(`Modal desconhecido aberto — evidências em ${base}.*`);
+  throw new AbortBeforePayment(
+    `Modal desconhecido aberto — evidências em dom-dumps/modal_unknown_${ts}.*`,
+  );
 }
 
 /**
