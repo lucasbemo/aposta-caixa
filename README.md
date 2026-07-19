@@ -159,7 +159,7 @@ make test     # Vitest — 18 testes das partes puras (secrets, config, logger, 
 make build    # compila TypeScript (tsc)
 ```
 
-Os módulos de fluxo e navegador (`flow.ts`, `browser.ts`) dependem do site real das Loterias CAIXA e são validados **ao vivo** (via `bet --dry-run`), sem testes unitários automatizados.
+Os módulos de fluxo e navegador (`flow.ts`, `browser.ts`) dependem do site real das Loterias CAIXA e são validados **ao vivo** (via `make dry-run`), sem testes unitários automatizados.
 
 ## Licença
 
