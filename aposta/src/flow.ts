@@ -150,6 +150,8 @@ export async function submitOtpAndPassword(
  * loudly BEFORE any bet action.
  * NEVER clicks affirmative buttons (Confirmar/Sim/Continuar/Incluir no
  * carrinho) — those belong to clickVisibleModalConfirm().
+ * Also called at the post-payment call sites (saveComprovante), where it may
+ * still throw AbortBeforePayment; those callers catch locally (see index.ts).
  */
 export async function dismissBlockingModals(page: Page, log?: Logger): Promise<void> {
   const closeIds = [
@@ -174,36 +176,46 @@ export async function dismissBlockingModals(page: Page, log?: Logger): Promise<v
     if (await container.count()) {
       // Best-effort "Não mostrar mais" tick: labelled checkbox first, then
       // checkbox inside a matching <label>, then the container's single
-      // visible checkbox when the text is present anywhere in it.
+      // visible checkbox when the text is present anywhere in it. Bounded
+      // timeout (not a visibility filter — styled checkboxes often hide the
+      // input itself).
       const byLabel = container.getByLabel(selectors.promo.dontShowAgainLabel);
       const inLabel = container
         .locator('label')
         .filter({ hasText: selectors.promo.dontShowAgainLabel })
         .locator('input[type="checkbox"]');
       if (await byLabel.count()) {
-        await byLabel.first().check().catch(() => {});
+        await byLabel.first().check({ timeout: 2500 }).catch(() => {});
       } else if (await inLabel.count()) {
-        await inLabel.first().check().catch(() => {});
+        await inLabel.first().check({ timeout: 2500 }).catch(() => {});
       } else if (await container.getByText(selectors.promo.dontShowAgainLabel).count()) {
         const cb = container.locator('input[type="checkbox"]:visible');
-        if ((await cb.count()) === 1) await cb.first().check().catch(() => {});
+        if ((await cb.count()) === 1) await cb.first().check({ timeout: 2500 }).catch(() => {});
       }
 
-      const fecharButton = container.getByRole('button', {
-        name: selectors.promo.closeButtonText,
-        exact: true,
-      });
-      const fecharText = container.getByText(selectors.promo.closeButtonText, { exact: true });
-      if (await fecharButton.count()) {
-        await fecharButton.first().click().catch(() => {});
-        await sleep(700);
-        log?.info('Modal de promoção/notificação fechado.');
-        closedAny = true;
-      } else if (await fecharText.count()) {
-        await fecharText.first().click().catch(() => {});
-        await sleep(700);
-        log?.info('Modal de promoção/notificação fechado.');
-        closedAny = true;
+      // "Fechar" button: like clickVisibleModalConfirm() above, the site
+      // pre-renders hidden duplicate modal controls, so getByRole/getByText
+      // counts include hidden nodes. Iterate and pick the first VISIBLE
+      // match, with a bounded click timeout so a hidden match can never
+      // stall a round.
+      for (const candidate of [
+        container.getByRole('button', { name: selectors.promo.closeButtonText, exact: true }),
+        container.getByText(selectors.promo.closeButtonText, { exact: true }),
+      ]) {
+        const n = await candidate.count();
+        let closedModal = false;
+        for (let i = 0; i < n; i++) {
+          const b = candidate.nth(i);
+          if (await b.isVisible().catch(() => false)) {
+            await b.click({ timeout: 2500 }).catch(() => {});
+            await sleep(700);
+            log?.info('Modal de promoção/notificação fechado.');
+            closedAny = true;
+            closedModal = true;
+            break;
+          }
+        }
+        if (closedModal) break;
       }
     }
 
