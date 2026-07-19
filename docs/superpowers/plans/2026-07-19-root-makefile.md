@@ -183,47 +183,140 @@ git commit -m "feat: add run targets (dry-run, bet, comprovante, history, setup)
 
 ---
 
-### Task 3: Document make usage in the README
+### Task 3: Make the README make-first; move raw commands to docs/CLI.md
 
 **Files:**
-- Modify: `README.md` — insert a new section right after the `## Uso` section's command table and example output (i.e., before `## Segurança & privacidade`).
+- Create: `docs/CLI.md`
+- Modify: `README.md` — the `Instalação`, `Configuração` and `Uso` sections. Everything else (aviso, mermaid diagram, Segurança, Limitações, Desenvolvimento) stays untouched.
 
 **Interfaces:**
 - Consumes: target names exactly as defined in Tasks 1–2.
 
-- [ ] **Step 1: Add the section**
+- [ ] **Step 1: Create `docs/CLI.md`**
 
-Insert into `README.md` (PT-BR, matching the document's language), before `## Segurança & privacidade`:
+Exact content (PT-BR, matching the README's language):
 
 ```markdown
-## Uso com make (opcional)
+# Comandos sem make
 
-Um `Makefile` na raiz do repositório encapsula todos os comandos acima — execute `make <alvo>` a partir da raiz, sem precisar entrar em `aposta/`:
+O [`Makefile` na raiz do repositório](../Makefile) é apenas um atalho — cada alvo executa os comandos crus abaixo. Use esta tabela se preferir (ou precisar) rodar sem `make`.
 
-| Alvo | Equivalente |
-|---|---|
-| `make all` | `install` + `config` + `build` (clone novo → pronto para o dry-run) |
-| `make install` | `npm install` + `npx playwright install chromium` |
-| `make config` | copia `.env.example` → `.env` e `config.example.json` → `config.json` (nunca sobrescreve) + `chmod 600 .env` |
-| `make build` | `npm run build` |
-| `make dry-run` | `node dist/index.js bet --dry-run` |
-| `make bet` | `node dist/index.js bet` (aposta **real**) |
-| `make comprovante` | `node dist/index.js comprovante` |
-| `make history` | `node dist/index.js history` |
-| `make setup` | `node dist/index.js setup` |
-| `make test` | `npm test` |
+Todos os comandos crus são executados de dentro da pasta `aposta/`.
 
-`make` sem argumentos lista os alvos disponíveis.
+| Alvo make | Comando(s) cru(s) | O que faz |
+|---|---|---|
+| `make install` | `npm install` e `npx playwright install chromium` | Instala dependências e o Chromium do Playwright. |
+| `make config` | `cp -n .env.example .env`, `chmod 600 .env`, `cp -n config.example.json config.json` | Cria os arquivos de configuração a partir dos exemplos (nunca sobrescreve os existentes). |
+| `make build` | `npm run build` | Compila o TypeScript (tsc). |
+| `make all` | os três acima, em ordem | Clone novo → pronto para o dry-run. |
+| `make dry-run` | `node dist/index.js bet --dry-run` | Roda o fluxo inteiro **parando antes do pagamento** (valida seletores sem apostar). |
+| `make bet` | `node dist/index.js bet` | Aposta **real**: pede confirmação "SIM", o CVV (se não estiver no `.env`), paga e salva o comprovante. |
+| `make comprovante` | `node dist/index.js comprovante` | Re-salva o comprovante (screenshot) da compra mais recente. |
+| `make history` | `node dist/index.js history` | Lista as apostas registradas localmente. |
+| `make setup` | `node dist/index.js setup` | Mostra as instruções de configuração inicial. |
+| `make test` | `npm test` | Roda os 18 testes (Vitest) das partes puras. |
+
+`make` sem argumentos (na raiz do repositório) lista todos os alvos disponíveis.
 ```
 
-- [ ] **Step 2: Verify the table matches the Makefile**
+- [ ] **Step 2: Rewrite the README `## Instalação` section**
 
-Run: `grep -E '^[a-zA-Z_-]+:.*## ' Makefile | cut -d: -f1 | sort` and compare against the `make <alvo>` rows in the new README table.
-Expected: the grep lists 11 targets — `help` plus the same 10 that appear as `make <alvo>` rows in the README table (`help` itself is covered by the closing sentence about bare `make`).
+Replace the current code block under `## Instalação`:
 
-- [ ] **Step 3: Commit**
+~~~markdown
+```bash
+git clone https://github.com/lucasbemo/aposta-caixa.git
+cd aposta-caixa/aposta
+npm install
+npx playwright install chromium
+npm run build
+```
+~~~
+
+with:
+
+~~~markdown
+```bash
+git clone https://github.com/lucasbemo/aposta-caixa.git
+cd aposta-caixa
+make install
+make build
+```
+
+Prefere rodar sem `make`? Os comandos equivalentes estão em [docs/CLI.md](docs/CLI.md).
+~~~
+
+- [ ] **Step 3: Rewrite the README `## Configuração` opening**
+
+Replace:
+
+~~~markdown
+Copie o arquivo de exemplo e restrinja a permissão do arquivo de segredos:
 
 ```bash
-git add README.md
-git commit -m "docs: document root Makefile targets in README"
+cp .env.example .env
+chmod 600 .env
+```
+~~~
+
+with:
+
+~~~markdown
+Crie os arquivos de configuração a partir dos exemplos (o `.env` já sai com permissão `600`; nada é sobrescrito se os arquivos já existirem):
+
+```bash
+make config
+```
+~~~
+
+Then delete the now-redundant second copy block later in the same section:
+
+~~~markdown
+Copie `config.example.json` para `config.json` e ajuste:
+
+```bash
+cp config.example.json config.json
+```
+~~~
+
+replacing it with the single line:
+
+```markdown
+No `config.json`, ajuste:
+```
+
+(The `defaultCardLast4` / `maxAmountPerRun` / `otpPollTimeoutSec` bullet list and the security warning below it stay unchanged.)
+
+- [ ] **Step 4: Rewrite the README `## Uso` section**
+
+Replace everything from the line `Todos os comandos abaixo são executados de dentro da pasta \`aposta/\`:` through the end of the 5-row command table (keep the `Exemplo de saída` block that follows) with:
+
+```markdown
+Todos os alvos são executados com `make`, a partir da raiz do repositório:
+
+| Comando | O que faz |
+|---|---|
+| `make dry-run` | Roda o fluxo inteiro **parando antes do pagamento** (valida seletores sem apostar). |
+| `make bet` | Aposta **real**: pede confirmação "SIM", o CVV (se não estiver no `.env`), paga e salva o comprovante. |
+| `make comprovante` | Re-salva o comprovante (screenshot) da compra mais recente. |
+| `make history` | Lista as apostas registradas localmente. |
+| `make setup` | Mostra as instruções de configuração inicial. |
+
+`make` sem argumentos lista todos os alvos (incluindo `install`, `config`, `build`, `all` e `test`). Os comandos `node` equivalentes estão em [docs/CLI.md](docs/CLI.md).
+```
+
+In the `Exemplo de saída` line that follows, change `` (`bet --dry-run`) `` to `` (`make dry-run`) ``. In `## Desenvolvimento`, change `npm test` → `make test` and `npm run build` → `make build` in the fenced command block, keeping the comments on each line.
+
+- [ ] **Step 5: Verify consistency**
+
+Run: `grep -E '^[a-zA-Z_-]+:.*## ' Makefile | cut -d: -f1 | sort`
+Expected: 11 targets — `help` plus the 10 that appear in the `docs/CLI.md` table.
+
+Check: every `docs/CLI.md` link in README resolves (`ls docs/CLI.md`), and `grep -n 'node dist/index.js' README.md` matches only the mermaid diagram node (line ~34), nowhere else.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add README.md docs/CLI.md
+git commit -m "docs: make README make-first; move raw CLI commands to docs/CLI.md"
 ```

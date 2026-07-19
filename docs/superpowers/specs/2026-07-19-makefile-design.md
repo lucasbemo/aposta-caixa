@@ -60,7 +60,9 @@ own error, which is clear enough.
 
 ## Out of scope
 
-- No changes to `package.json` scripts, the CLI, or the README command set
-  itself (a README section documenting `make` usage may be added during
-  implementation, but command semantics stay identical).
+- No changes to `package.json` scripts or the CLI. The README becomes
+  make-first: `Instalação`, `Configuração` and `Uso` reference make targets,
+  and the raw `npm`/`node`/`cp` equivalents move to `docs/CLI.md`, linked from
+  the README (decision added 2026-07-19 after spec approval). Command
+  semantics stay identical.
 - No file-based incremental build tracking in make.
