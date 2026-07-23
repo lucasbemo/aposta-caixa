@@ -29,6 +29,26 @@ export function parseAmount(text: string): number {
   return Number(cleaned);
 }
 
+/**
+ * Pure: pick the "normal" (plain-name, never "Ambos") contest label from a
+ * contest-choice modal ("Existem N concursos abertos para a X..."). `text` is
+ * the modal's full text, `labels` the radio labels. Returns the label to
+ * select, or null when no safe choice exists (caller escalates).
+ */
+export function chooseContestLabel(text: string, labels: string[]): string | null {
+  const candidates = labels.map((l) => l.trim()).filter((l) => l && !/^ambos$/i.test(l));
+  if (!candidates.length) return null;
+  const base = text.match(/para [ao] (.+?)[.?]/i)?.[1]?.trim();
+  if (base) {
+    const exact = candidates.find(
+      (l) => l.localeCompare(base, 'pt-BR', { sensitivity: 'base' }) === 0,
+    );
+    if (exact) return exact;
+  }
+  // Special contests are "X da Y" — strictly longer than the plain name.
+  return candidates.reduce((a, b) => (b.length < a.length ? b : a));
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Best-effort dismissal of the terms-of-use / info modals shown before home. */
