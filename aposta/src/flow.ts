@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type Page } from 'playwright';
+import { type Page, type Locator } from 'playwright';
 import {
   selectors,
   CAIXA_URL,
@@ -254,6 +254,36 @@ export async function dismissBlockingModals(page: Page, log?: Logger): Promise<v
 }
 
 /**
+ * Click with a modal-aware fallback: attempt the click with a SHORT timeout
+ * (default 8s instead of Playwright's 30s); on failure — typically a promo/
+ * notification modal intercepting pointer events — close blocking modals and
+ * retry. After the last failed attempt, rethrow the original click error so
+ * the Playwright call log stays actionable; if the guard escalates on an
+ * unknown modal, its AbortBeforePayment propagates instead (preferred).
+ * NEVER use for the CVV "Confirmar" payment click — that stays single-shot.
+ */
+export async function clickWithModalGuard(
+  page: Page,
+  target: Locator,
+  log?: Logger,
+  opts: { timeout?: number; attempts?: number } = {},
+): Promise<void> {
+  const { timeout = 8_000, attempts = 3 } = opts;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await target.click({ timeout });
+      return;
+    } catch (e) {
+      lastError = e;
+      log?.info(`Clique falhou (tentativa ${attempt}/${attempts}) — verificando modais bloqueantes.`);
+      await dismissBlockingModals(page, log);
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Click the CURRENTLY VISIBLE confirmation button. The id
  * #confirmarModalConfirmacao is reused across many hidden, pre-rendered Angular
  * modals, so we must target the visible one (`:visible`), not the first match.
@@ -296,7 +326,7 @@ export async function clearCart(page: Page, log: Logger): Promise<void> {
   await dismissBlockingModals(page); // "existem apostas idênticas" alert blocks clicks
   const clear = page.locator(selectors.carrinho.clearCartButton);
   if (await clear.count()) {
-    await clear.click().catch(() => {});
+    await clickWithModalGuard(page, clear, log);
     await sleep(1200);
     await clickVisibleModalConfirm(page); // "deseja limpar o carrinho?" -> Confirmar
     await sleep(1500);
@@ -333,9 +363,9 @@ export async function selectCarrinhoFavoritoAndCheckout(
   const target = rows.filter({ hasText: secrets.caixaCarrinhoFavorito });
   const matched = await target.count();
   if (matched === 1) {
-    await target.locator(selectors.carrinhos.includeIcon).click();
+    await clickWithModalGuard(page, target.locator(selectors.carrinhos.includeIcon), log);
   } else if (matched === 0 && (await rows.count()) === 1) {
-    await rows.locator(selectors.carrinhos.includeIcon).click();
+    await clickWithModalGuard(page, rows.locator(selectors.carrinhos.includeIcon), log);
   } else {
     throw new AbortBeforePayment(
       `Esperava exatamente 1 carrinho com o nome "${secrets.caixaCarrinhoFavorito}", encontrei ${matched} (de ${await rows.count()} carrinhos). Ajuste CAIXA_CARRINHO_FAVORITO.`,
@@ -352,7 +382,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await page.waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
   });
-  await page.click(selectors.carrinho.goToPaymentButton);
+  await clickWithModalGuard(page, page.locator(selectors.carrinho.goToPaymentButton), log);
   await sleep(1200);
   await clickVisibleModalConfirm(page); // "prosseguir para pagamento" popup
 
@@ -383,7 +413,7 @@ export async function selectCardByLast4(page: Page, last4: string): Promise<void
     await dismissBlockingModals(page);
     const cell = page.locator(selectors.checkout.cardCellByLast4(last4)).first();
     if ((await cell.count()) && (await cell.isVisible().catch(() => false))) {
-      await cell.click().catch(() => {});
+      await clickWithModalGuard(page, cell);
       await sleep(1500);
       return;
     }
@@ -405,7 +435,7 @@ export interface PaymentOutcome {
 
 export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<PaymentOutcome> {
   await dismissBlockingModals(page);
-  await page.click(selectors.checkout.proceedButton); // "Continuar" -> opens CVV popup
+  await clickWithModalGuard(page, page.locator(selectors.checkout.proceedButton), log); // "Continuar" -> opens CVV popup (retry-safe)
   await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Popup de CVV não apareceu após "Continuar".');
   });
@@ -489,7 +519,7 @@ export async function saveComprovante(
   const link = page.locator('a[ng-click*="verDetalheCompra"]').first();
   await link.waitFor({ timeout: 20_000 });
   const numero = (await link.innerText().catch(() => '')).trim().replace(/\s+/g, '');
-  await link.click();
+  await clickWithModalGuard(page, link, log);
   await sleep(5000);
   await dismissBlockingModals(page);
 
