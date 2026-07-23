@@ -44,6 +44,10 @@ export const selectors = {
   contestChoice: {
     modalText: /concursos abertos/i,
     includeButtonText: 'Incluir no carrinho', // exact
+    // Stable, lottery-agnostic radio ids captured live (evidence:
+    // dom-dumps/contest_modal_1784833734086.txt). "Normal" = plain-name
+    // contest; siblings are ...Especial and ...Todos ("Ambos").
+    normalRadioId: '#radioIncluirApostaCarrinhoFavoritoNormal',
   },
 
   home: {

@@ -432,7 +432,8 @@ export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
  * including the favorite cart when a special contest (Mega da Virada,
  * Lotofácil da Independência, ...) is open. "Ambos" comes PRE-SELECTED and
  * would duplicate every game of that lottery, so: pick the plain-name radio
- * via chooseContestLabel, verify the selection, then click that modal's
+ * (stable id first, chooseContestLabel heuristic as fallback), verify the
+ * selection, then click that modal's
  * "Incluir no carrinho". Up to 3 rounds — the favorite cart mixes lotteries,
  * so one modal per lottery can appear in sequence. If the modal is present
  * but a radio cannot be selected, save evidence and throw AbortBeforePayment:
@@ -452,43 +453,61 @@ async function handleContestChoiceModals(page: Page, log: Logger): Promise<void>
     if (!(await modal.count())) return;
 
     const text = await modal.innerText().catch(() => '');
-    // Radio labels: accessible names first, then <label> text via evaluate
-    // (the site's styled radios may hide the input itself).
-    const radios = modal.getByRole('radio');
-    const n = await radios.count();
-    const labels: string[] = [];
-    for (let i = 0; i < n; i++) {
-      const name =
-        (await radios.nth(i).getAttribute('aria-label').catch(() => null)) ||
-        (await radios
-          .nth(i)
-          .evaluate((el) => el.closest('label')?.textContent ?? '')
-          .catch(() => ''));
-      labels.push((name ?? '').replace(/\s+/g, ' ').trim());
+
+    // ID-first: the radios carry stable, lottery-agnostic ids and their
+    // inputs have NO accessible name (the text sits BESIDE the input, not
+    // label-associated — evidence dom-dumps/contest_modal_1784833734086.txt),
+    // so the id beats any label heuristic. "Normal" = plain-name contest.
+    let selected = false;
+    let chosen: string | null = null;
+    const normal = modal.locator(selectors.contestChoice.normalRadioId);
+    if (await normal.count()) {
+      await normal.first().check({ timeout: 2500 }).catch(() => {});
+      selected = await normal.first().isChecked().catch(() => false);
+      if (selected) {
+        chosen = text.match(/para [ao] (.+?)[.?]/i)?.[1]?.trim() ?? 'concurso normal';
+      }
     }
 
-    const chosen = chooseContestLabel(text, labels);
-    let selected = false;
-    if (chosen) {
-      const byRole = modal.getByRole('radio', { name: chosen, exact: true });
-      if (await byRole.count()) {
-        await byRole.first().check({ timeout: 2500 }).catch(() => {});
-        selected = await byRole.first().isChecked().catch(() => false);
+    if (!selected) {
+      // Fallback heuristic (id missing/renamed): radio labels via accessible
+      // name, then surrounding text — closest <label> OR parent element,
+      // since this DOM keeps the text next to the input, not wrapping it.
+      const radios = modal.getByRole('radio');
+      const n = await radios.count();
+      const labels: string[] = [];
+      for (let i = 0; i < n; i++) {
+        const name =
+          (await radios.nth(i).getAttribute('aria-label').catch(() => null)) ||
+          (await radios
+            .nth(i)
+            .evaluate((el) => el.closest('label')?.textContent || el.parentElement?.textContent || '')
+            .catch(() => ''));
+        labels.push((name ?? '').replace(/\s+/g, ' ').trim());
       }
-      if (!selected) {
-        // Anchored exact match: plain "Lotofácil" must NOT substring-match
-        // the special "Lotofácil da Independência" label.
-        const exactLabel = new RegExp(
-          `^\\s*${chosen.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
-          'i',
-        );
-        const byLabel = modal.locator('label').filter({ hasText: exactLabel }).first();
-        if (await byLabel.count()) {
-          await byLabel.click({ timeout: 2500 }).catch(() => {});
-          const input = byLabel.locator('input[type="radio"]');
-          selected = (await input.count())
-            ? await input.first().isChecked().catch(() => false)
-            : false;
+
+      chosen = chooseContestLabel(text, labels);
+      if (chosen) {
+        const byRole = modal.getByRole('radio', { name: chosen, exact: true });
+        if (await byRole.count()) {
+          await byRole.first().check({ timeout: 2500 }).catch(() => {});
+          selected = await byRole.first().isChecked().catch(() => false);
+        }
+        if (!selected) {
+          // Anchored exact match: plain "Lotofácil" must NOT substring-match
+          // the special "Lotofácil da Independência" label.
+          const exactLabel = new RegExp(
+            `^\\s*${chosen.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
+            'i',
+          );
+          const byLabel = modal.locator('label').filter({ hasText: exactLabel }).first();
+          if (await byLabel.count()) {
+            await byLabel.click({ timeout: 2500 }).catch(() => {});
+            const input = byLabel.locator('input[type="radio"]');
+            selected = (await input.count())
+              ? await input.first().isChecked().catch(() => false)
+              : false;
+          }
         }
       }
     }
