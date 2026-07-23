@@ -382,6 +382,11 @@ async function handleContestChoiceModals(page: Page, log: Logger): Promise<void>
       .locator(`${selectors.promo.modalContainer}:visible`)
       .filter({ hasText: selectors.contestChoice.modalText })
       .first();
+    // The modal can render late (page-entry modals were seen live taking
+    // >2.5s), and a second lottery's modal can follow the first — wait
+    // bounded instead of sampling once, else the generic confirm downstream
+    // would OK it with "Ambos" pre-selected.
+    await modal.waitFor({ state: 'visible', timeout: 4000 }).catch(() => {});
     if (!(await modal.count())) return;
 
     const text = await modal.innerText().catch(() => '');
@@ -392,7 +397,7 @@ async function handleContestChoiceModals(page: Page, log: Logger): Promise<void>
     const labels: string[] = [];
     for (let i = 0; i < n; i++) {
       const name =
-        (await radios.nth(i).getAttribute('aria-label').catch(() => null)) ??
+        (await radios.nth(i).getAttribute('aria-label').catch(() => null)) ||
         (await radios
           .nth(i)
           .evaluate((el) => el.closest('label')?.textContent ?? '')
@@ -409,7 +414,13 @@ async function handleContestChoiceModals(page: Page, log: Logger): Promise<void>
         selected = await byRole.first().isChecked().catch(() => false);
       }
       if (!selected) {
-        const byLabel = modal.locator('label').filter({ hasText: chosen }).first();
+        // Anchored exact match: plain "Lotofácil" must NOT substring-match
+        // the special "Lotofácil da Independência" label.
+        const exactLabel = new RegExp(
+          `^\\s*${chosen.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`,
+          'i',
+        );
+        const byLabel = modal.locator('label').filter({ hasText: exactLabel }).first();
         if (await byLabel.count()) {
           await byLabel.click({ timeout: 2500 }).catch(() => {});
           const input = byLabel.locator('input[type="radio"]');
