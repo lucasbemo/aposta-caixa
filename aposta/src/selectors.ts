@@ -32,6 +32,16 @@ export const selectors = {
     dontShowAgainLabel: /não mostrar mais/i, // "Não mostrar mais essa notificação"
   },
 
+  // "Existem N concursos abertos para a X. Deseja incluir no carrinho qual
+  // concurso?" — radios (special contest / plain name / "Ambos" pre-selected)
+  // + "Incluir no carrinho". Shown when a special contest (Mega da Virada,
+  // Lotofácil da Independência, ...) is open. Design:
+  // docs/superpowers/specs/2026-07-23-contest-choice-modal-design.md
+  contestChoice: {
+    modalText: /concursos abertos/i,
+    includeButtonText: 'Incluir no carrinho', // exact
+  },
+
   home: {
     loginLink: 'a#btnLogin', // "Acessar" (shown when logged out)
     loggedInIndicator: 'a#suaconta', // "Minha Conta" (shown when logged in)

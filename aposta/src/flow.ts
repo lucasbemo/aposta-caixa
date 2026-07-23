@@ -365,6 +365,95 @@ export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
   return false;
 }
 
+/**
+ * Handle the "Existem N concursos abertos para a X" modal(s) shown after
+ * including the favorite cart when a special contest (Mega da Virada,
+ * Lotofácil da Independência, ...) is open. "Ambos" comes PRE-SELECTED and
+ * would duplicate every game of that lottery, so: pick the plain-name radio
+ * via chooseContestLabel, verify the selection, then click that modal's
+ * "Incluir no carrinho". Up to 3 rounds — the favorite cart mixes lotteries,
+ * so one modal per lottery can appear in sequence. If the modal is present
+ * but a radio cannot be selected, save evidence and throw AbortBeforePayment:
+ * aborting beats silently confirming a duplicated cart.
+ */
+async function handleContestChoiceModals(page: Page, log: Logger): Promise<void> {
+  for (let round = 0; round < 3; round++) {
+    const modal = page
+      .locator(`${selectors.promo.modalContainer}:visible`)
+      .filter({ hasText: selectors.contestChoice.modalText })
+      .first();
+    if (!(await modal.count())) return;
+
+    const text = await modal.innerText().catch(() => '');
+    // Radio labels: accessible names first, then <label> text via evaluate
+    // (the site's styled radios may hide the input itself).
+    const radios = modal.getByRole('radio');
+    const n = await radios.count();
+    const labels: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const name =
+        (await radios.nth(i).getAttribute('aria-label').catch(() => null)) ??
+        (await radios
+          .nth(i)
+          .evaluate((el) => el.closest('label')?.textContent ?? '')
+          .catch(() => ''));
+      labels.push((name ?? '').replace(/\s+/g, ' ').trim());
+    }
+
+    const chosen = chooseContestLabel(text, labels);
+    let selected = false;
+    if (chosen) {
+      const byRole = modal.getByRole('radio', { name: chosen, exact: true });
+      if (await byRole.count()) {
+        await byRole.first().check({ timeout: 2500 }).catch(() => {});
+        selected = await byRole.first().isChecked().catch(() => false);
+      }
+      if (!selected) {
+        const byLabel = modal.locator('label').filter({ hasText: chosen }).first();
+        if (await byLabel.count()) {
+          await byLabel.click({ timeout: 2500 }).catch(() => {});
+          const input = byLabel.locator('input[type="radio"]');
+          selected = (await input.count())
+            ? await input.first().isChecked().catch(() => false)
+            : false;
+        }
+      }
+    }
+
+    if (!selected) {
+      const ts = Date.now();
+      const dumpDir = path.resolve('dom-dumps');
+      const base = path.join(dumpDir, `contest_modal_${ts}`);
+      try {
+        fs.mkdirSync(dumpDir, { recursive: true });
+        fs.writeFileSync(`${base}.txt`, await debugVisibleControls(page));
+      } catch {
+        // evidence is best-effort; never mask the abort
+      }
+      await page.screenshot({ path: `${base}.png`, fullPage: true }).catch(() => {});
+      throw new AbortBeforePayment(
+        `Modal de escolha de concurso não tratado (opção "${chosen ?? '?'}" não selecionável) — evidências em dom-dumps/contest_modal_${ts}.*`,
+      );
+    }
+    log.info(`Concurso selecionado: ${chosen}`);
+
+    // Confirm THIS modal only: visible exact-text "Incluir no carrinho".
+    const btn = modal.getByRole('button', {
+      name: selectors.contestChoice.includeButtonText,
+      exact: true,
+    });
+    const bn = await btn.count();
+    for (let i = 0; i < bn; i++) {
+      const b = btn.nth(i);
+      if (await b.isVisible().catch(() => false)) {
+        await b.click({ timeout: 2500 }).catch(() => {});
+        break;
+      }
+    }
+    await sleep(1500);
+  }
+}
+
 /** Empty the cart so it holds exactly the intended bet. Handles the blocking
  * "identical bets" alert, then the "Limpar carrinho" confirmation. */
 export async function clearCart(page: Page, log: Logger): Promise<void> {
@@ -422,6 +511,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
     );
   }
   await sleep(1200);
+  await handleContestChoiceModals(page, log); // special-contest choice: plain name, never "Ambos"
   await clickVisibleModalConfirm(page); // include may raise a confirm popup
 
   // Go to the cart page, proceed to payment, confirm the popup.
