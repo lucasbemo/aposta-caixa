@@ -87,7 +87,7 @@ async function beginKeycloakLogin(page: Page, secrets: Secrets, log: Logger): Pr
   await loginLink.waitFor({ timeout: 15_000 }).catch(() => {
     throw new AbortBeforePayment('Botão "Acessar" não encontrado na página.');
   });
-  await loginLink.click();
+  await clickWithModalGuard(page, loginLink, log); // a late promo modal can be open when recovery starts
 
   // Keycloak: CPF
   await page.waitForSelector(selectors.login.cpfInput, { timeout: 20_000 });
@@ -373,11 +373,11 @@ async function recheckLateModals(
   );
   for (let i = 0; i < 2; i++) {
     await sleep(2000);
-    if (checkSession) await throwIfSessionExpired(page);
     if (await blocking.count()) {
       log?.info('Modal tardio detectado — fechando.');
       await dismissBlockingModals(page, log);
     }
+    if (checkSession) await throwIfSessionExpired(page);
   }
 }
 
@@ -736,7 +736,14 @@ export async function saveComprovante(
   // The newest purchase is the first "Detalhamento da compra" link
   // (a[ng-click*="verDetalheCompra"]); its text is the purchase number.
   const link = page.locator('a[ng-click*="verDetalheCompra"]').first();
-  await link.waitFor({ timeout: 20_000 });
+  const linkLoaded = await link
+    .waitFor({ timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!linkLoaded) {
+    await throwIfSessionExpired(page); // dead session reports itself
+    throw new AbortBeforePayment('Lista de compras não carregou (link "Detalhamento da compra" ausente).');
+  }
   const numero = (await link.innerText().catch(() => '')).trim().replace(/\s+/g, '');
   await clickWithModalGuard(page, link, log);
   await sleep(5000);

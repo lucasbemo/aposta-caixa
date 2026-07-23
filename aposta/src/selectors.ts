@@ -8,7 +8,11 @@ export const CARRINHOS_FAVORITOS_URL = 'https://www.loteriasonline.caixa.gov.br/
 export const CARRINHO_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/carrinho';
 export const COMPRAS_URL = 'https://www.loteriasonline.caixa.gov.br/silce-web/#/compras';
 export const KEYCLOAK_HOST = 'login.caixa.gov.br';
-export const LOGGED_IN_URL_FRAGMENT = '/silce-web/#/home';
+// Any silce-web page counts — a relogin started from a non-home page (session-
+// expiry recovery) can be redirected back to the page it started from, not
+// #/home. The loggedInIndicator wait that follows is the real logged-in
+// confirmation.
+export const LOGGED_IN_URL_FRAGMENT = '/silce-web/';
 
 export const selectors = {
   // Terms-of-use modal shown before reaching home; must be accepted first.
