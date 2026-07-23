@@ -246,7 +246,7 @@ export async function dismissBlockingModals(page: Page, log?: Logger): Promise<v
     // evidence is best-effort; never mask the abort
   }
   await page.screenshot({ path: `${base}.png`, fullPage: true }).catch(() => {});
-  log?.info(`Modal desconhecido aberto — evidências em ${base}.*`);
+  log?.info(`Modal desconhecido aberto — evidências em dom-dumps/modal_unknown_${ts}.*`);
   throw new AbortBeforePayment(
     `Modal desconhecido aberto — evidências em dom-dumps/modal_unknown_${ts}.*`,
   );
@@ -351,12 +351,12 @@ export async function clearCart(page: Page, log: Logger): Promise<void> {
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await settleAndGuard(page, log); // "existem apostas idênticas" alert blocks clicks
   const clear = page.locator(selectors.carrinho.clearCartButton);
-  if (await clear.count()) {
+  if (await clear.isVisible().catch(() => false)) {
     await clickWithModalGuard(page, clear, log);
     await sleep(1200);
     await clickVisibleModalConfirm(page); // "deseja limpar o carrinho?" -> Confirmar
     await sleep(1500);
-    await dismissBlockingModals(page); // any follow-up alert
+    await dismissBlockingModals(page, log); // any follow-up alert
     log.step('clear-cart', 'ok');
   }
 }
@@ -455,7 +455,7 @@ export interface PaymentOutcome {
 }
 
 export async function payAndConfirm(page: Page, cvv: string, log: Logger): Promise<PaymentOutcome> {
-  await dismissBlockingModals(page);
+  await dismissBlockingModals(page, log);
   await clickWithModalGuard(page, page.locator(selectors.checkout.proceedButton), log); // "Continuar" -> opens CVV popup (retry-safe)
   await page.waitForSelector(`${selectors.payment.cvvInput}:visible`, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Popup de CVV não apareceu após "Continuar".');
@@ -541,7 +541,7 @@ export async function saveComprovante(
   const numero = (await link.innerText().catch(() => '')).trim().replace(/\s+/g, '');
   await clickWithModalGuard(page, link, log);
   await sleep(5000);
-  await dismissBlockingModals(page);
+  await dismissBlockingModals(page, log);
 
   const screenshotPath = path.join(receiptsDir, `comprovante-${numero || 'sem-numero'}-${Date.now()}.png`);
   await page.screenshot({ path: screenshotPath, fullPage: true });
