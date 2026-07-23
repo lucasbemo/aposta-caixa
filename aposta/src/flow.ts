@@ -59,9 +59,7 @@ export async function acceptTermsIfPresent(page: Page, log: Logger): Promise<voi
  */
 export async function login(page: Page, secrets: Secrets, log: Logger): Promise<'ALREADY' | 'CODE_REQUESTED'> {
   await page.goto(CAIXA_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(2500);
-  await acceptTermsIfPresent(page, log);
-  await dismissBlockingModals(page, log); // promos pop on home (logged in OR out) and block all clicks
+  await settleAndGuard(page, log); // promos pop on home (logged in OR out) and block all clicks
 
   // Persistent profile may still be logged in — skip the whole login if so.
   const loggedIn = page.locator(selectors.home.loggedInIndicator);
@@ -134,6 +132,7 @@ export async function submitOtpAndPassword(
     throw new AbortBeforePayment('Não confirmei o login (indicador "Minha Conta" ausente).');
   });
   await dismissBlockingModals(page, log); // fresh-login home is where promo modals appear most
+  await recheckLateModals(page, log); // notification modal can render seconds later
   log.step('login-complete', 'ok');
 }
 
@@ -284,6 +283,35 @@ export async function clickWithModalGuard(
 }
 
 /**
+ * Page-entry settle + modal watch window: the historical trio (2.5s settle,
+ * terms, full guard), then 2 extra re-checks ~2s apart — promo/notification
+ * modals can take longer than 2.5s to render (seen live 2026-07-23). Each
+ * re-check is a cheap visible-container count; the full guard runs only when
+ * something actually appeared. Cost: ~+4s per page entry; modals later than
+ * ~7s are covered by clickWithModalGuard at action time.
+ */
+async function settleAndGuard(page: Page, log: Logger): Promise<void> {
+  await sleep(2500);
+  await acceptTermsIfPresent(page, log);
+  await dismissBlockingModals(page, log);
+  await recheckLateModals(page, log);
+}
+
+/** The 2-re-check tail of settleAndGuard, reusable where there is no goto. */
+async function recheckLateModals(page: Page, log?: Logger): Promise<void> {
+  const blocking = page.locator(
+    `${selectors.promo.modalContainer}:visible, ${selectors.promo.notificationContainer}:visible, ${selectors.promo.backdrop}:visible`,
+  );
+  for (let i = 0; i < 2; i++) {
+    await sleep(2000);
+    if (await blocking.count()) {
+      log?.info('Modal tardio detectado — fechando.');
+      await dismissBlockingModals(page, log);
+    }
+  }
+}
+
+/**
  * Click the CURRENTLY VISIBLE confirmation button. The id
  * #confirmarModalConfirmacao is reused across many hidden, pre-rendered Angular
  * modals, so we must target the visible one (`:visible`), not the first match.
@@ -321,9 +349,7 @@ export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
  * "identical bets" alert, then the "Limpar carrinho" confirmation. */
 export async function clearCart(page: Page, log: Logger): Promise<void> {
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(2500);
-  await acceptTermsIfPresent(page, log);
-  await dismissBlockingModals(page); // "existem apostas idênticas" alert blocks clicks
+  await settleAndGuard(page, log); // "existem apostas idênticas" alert blocks clicks
   const clear = page.locator(selectors.carrinho.clearCartButton);
   if (await clear.count()) {
     await clickWithModalGuard(page, clear, log);
@@ -349,9 +375,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await clearCart(page, log);
 
   await page.goto(CARRINHOS_FAVORITOS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(2500);
-  await acceptTermsIfPresent(page, log);
-  await dismissBlockingModals(page);
+  await settleAndGuard(page, log);
   await page.waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou (nenhum carrinho salvo?).');
   });
@@ -376,9 +400,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
 
   // Go to the cart page, proceed to payment, confirm the popup.
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(2500);
-  await acceptTermsIfPresent(page, log);
-  await dismissBlockingModals(page);
+  await settleAndGuard(page, log);
   await page.waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 }).catch(() => {
     throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
   });
@@ -391,8 +413,7 @@ export async function selectCarrinhoFavoritoAndCheckout(
   await page
     .waitForURL((u) => /pagamento/i.test(u.toString()) && /loteriasonline/i.test(u.toString()), { timeout: 30_000 })
     .catch(() => {});
-  await sleep(2500);
-  await dismissBlockingModals(page);
+  await settleAndGuard(page, log);
 
   // Best-effort card selection (do not throw — caller inspects the page).
   await selectCardByLast4(page, cardLast4).catch((e) => log.info(`Cartão não selecionado ainda: ${(e as Error).message}`));
@@ -511,8 +532,7 @@ export async function saveComprovante(
   log: Logger,
 ): Promise<{ numero: string; screenshotPath: string }> {
   await page.goto(COMPRAS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await sleep(4000);
-  await dismissBlockingModals(page);
+  await settleAndGuard(page, log);
 
   // The newest purchase is the first "Detalhamento da compra" link
   // (a[ng-click*="verDetalheCompra"]); its text is the purchase number.
