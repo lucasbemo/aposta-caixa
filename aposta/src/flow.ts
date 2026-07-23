@@ -16,6 +16,12 @@ import { fetchLatestCaixaEmail, pollForOtp } from './otp.js';
 /** Thrown on any unexpected page BEFORE payment — always safe to abort/retry here. */
 export class AbortBeforePayment extends Error {}
 
+/** Thrown when the header shows the logged-out "Acessar" link on a page where
+ * the flow expects to be logged in: the persistent profile served a cached
+ * page but the server session is gone. Subclass of AbortBeforePayment so any
+ * unhandled instance still takes the safe pre-payment abort path. */
+export class SessionExpired extends AbortBeforePayment {}
+
 export interface CheckoutInfo {
   lottery: string;
   contest: string;
@@ -79,7 +85,7 @@ export async function acceptTermsIfPresent(page: Page, log: Logger): Promise<voi
  */
 export async function login(page: Page, secrets: Secrets, log: Logger): Promise<'ALREADY' | 'CODE_REQUESTED'> {
   await page.goto(CAIXA_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
-  await settleAndGuard(page, log); // promos pop on home (logged in OR out) and block all clicks
+  await settleAndGuard(page, log, { checkSession: false }); // logged-out home is normal here
 
   // Persistent profile may still be logged in — skip the whole login if so.
   const loggedIn = page.locator(selectors.home.loggedInIndicator);
@@ -309,25 +315,52 @@ export async function clickWithModalGuard(
  * re-check is a cheap visible-container count; the full guard runs only when
  * something actually appeared. Cost: ~+4s per page entry; modals later than
  * ~7s are covered by clickWithModalGuard at action time.
+ * checkSession (default true): also watch for the header re-rendering the
+ * logged-out "Acessar" link (cached page, dead session) and throw
+ * SessionExpired. login() disables it — logged-out home is normal there.
  */
-async function settleAndGuard(page: Page, log: Logger): Promise<void> {
+async function settleAndGuard(
+  page: Page,
+  log: Logger,
+  opts: { checkSession?: boolean } = {},
+): Promise<void> {
+  const { checkSession = true } = opts;
   await sleep(2500);
   await acceptTermsIfPresent(page, log);
   await dismissBlockingModals(page, log);
-  await recheckLateModals(page, log);
+  if (checkSession) await throwIfSessionExpired(page);
+  await recheckLateModals(page, log, { checkSession });
 }
 
 /** The 2-re-check tail of settleAndGuard, reusable where there is no goto. */
-async function recheckLateModals(page: Page, log?: Logger): Promise<void> {
+async function recheckLateModals(
+  page: Page,
+  log?: Logger,
+  opts: { checkSession?: boolean } = {},
+): Promise<void> {
+  const { checkSession = true } = opts;
   const blocking = page.locator(
     `${selectors.promo.modalContainer}:visible, ${selectors.promo.notificationContainer}:visible, ${selectors.promo.backdrop}:visible`,
   );
   for (let i = 0; i < 2; i++) {
     await sleep(2000);
+    if (checkSession) await throwIfSessionExpired(page);
     if (await blocking.count()) {
       log?.info('Modal tardio detectado — fechando.');
       await dismissBlockingModals(page, log);
     }
+  }
+}
+
+/** Throw SessionExpired if the CURRENT page's header shows the logged-out
+ * "Acessar" link. The cached page does NOT show it at first — the SPA only
+ * re-renders the header after a navigation/action makes its API calls fail —
+ * hence this runs inside the settle watch window, not just at page entry. */
+async function throwIfSessionExpired(page: Page): Promise<void> {
+  const link = page.locator(selectors.home.loginLink);
+  const visible = (await link.count()) > 0 && (await link.first().isVisible().catch(() => false));
+  if (visible) {
+    throw new SessionExpired('Sessão expirada (página cacheada) — é preciso refazer o login.');
   }
 }
 
@@ -502,9 +535,14 @@ export async function selectCarrinhoFavoritoAndCheckout(
 
   await page.goto(CARRINHOS_FAVORITOS_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await settleAndGuard(page, log);
-  await page.waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 }).catch(() => {
+  const iconsLoaded = await page
+    .waitForSelector(selectors.carrinhos.includeIcon, { timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!iconsLoaded) {
+    await throwIfSessionExpired(page); // dead session reports itself, not "nenhum carrinho salvo?"
     throw new AbortBeforePayment('Página de Carrinhos Favoritos não carregou (nenhum carrinho salvo?).');
-  });
+  }
 
   // Select the RIGHT cart: the table row whose text contains the configured name.
   const rows = page
@@ -528,9 +566,14 @@ export async function selectCarrinhoFavoritoAndCheckout(
   // Go to the cart page, proceed to payment, confirm the popup.
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await settleAndGuard(page, log);
-  await page.waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 }).catch(() => {
+  const payButtonLoaded = await page
+    .waitForSelector(selectors.carrinho.goToPaymentButton, { timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!payButtonLoaded) {
+    await throwIfSessionExpired(page);
     throw new AbortBeforePayment('Botão "Ir para pagamento" não apareceu no carrinho (carrinho vazio?).');
-  });
+  }
   await clickWithModalGuard(page, page.locator(selectors.carrinho.goToPaymentButton), log);
   await sleep(1200);
   await clickVisibleModalConfirm(page); // "prosseguir para pagamento" popup
