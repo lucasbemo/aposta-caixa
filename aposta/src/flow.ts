@@ -141,7 +141,8 @@ export async function submitOtpAndPassword(
  * Close blocking modals before acting. Per round (up to 4, since closing one
  * can reveal another):
  *   1. Known close-button ids (#fecharModal*) — alert/info/error modals.
- *   2. Generic dismissable modals (promotions/notifications, no stable ids):
+ *   2. Generic dismissable modals (promotions/notifications, no stable ids),
+ *      for BOTH container classes (.modal.in and .modal-notificacao-container):
  *      tick "Não mostrar mais essa notificação" when present (persistent
  *      profile => suppresses repeats), then click the modal's exact-text
  *      "Fechar" button.
@@ -172,8 +173,13 @@ export async function dismissBlockingModals(page: Page, log?: Logger): Promise<v
     }
 
     // Generic pass: visible promo/notification modal with a "Fechar" button.
-    const container = page.locator(`${selectors.promo.modalContainer}:visible`).first();
-    if (await container.count()) {
+    // Two container classes, no stable ids (see selectors.promo).
+    for (const containerSel of [
+      selectors.promo.modalContainer,
+      selectors.promo.notificationContainer,
+    ]) {
+      const container = page.locator(`${containerSel}:visible`).first();
+      if (!(await container.count())) continue;
       // Best-effort "Não mostrar mais" tick: labelled checkbox first, then
       // checkbox inside a matching <label>, then the container's single
       // visible checkbox when the text is present anywhere in it. Bounded
@@ -224,7 +230,7 @@ export async function dismissBlockingModals(page: Page, log?: Logger): Promise<v
 
   // Escalation: something is still blocking and we don't know how to close it.
   const blocking = page.locator(
-    `${selectors.promo.modalContainer}:visible, ${selectors.promo.backdrop}:visible`,
+    `${selectors.promo.modalContainer}:visible, ${selectors.promo.notificationContainer}:visible, ${selectors.promo.backdrop}:visible`,
   );
   if (!(await blocking.count())) return;
   await page.keyboard.press('Escape').catch(() => {});
