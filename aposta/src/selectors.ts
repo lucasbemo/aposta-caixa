@@ -19,9 +19,14 @@ export const selectors = {
 
   // Promotion/notification modals (e.g. "LOTOFÁCIL DA INDEPENDÊNCIA") shown
   // mainly on home. No stable ids — detected generically by container class.
-  // Design: docs/superpowers/specs/2026-07-19-promo-modal-guard-design.md
+  // Two container classes exist: Bootstrap `.modal.in` dialogs, and the
+  // header-rendered `.modal-notificacao-container` (ng-if on
+  // notificacaoNaoVisualizada — seen blocking Carrinhos Favoritos 2026-07-23).
+  // Designs: docs/superpowers/specs/2026-07-19-promo-modal-guard-design.md
+  //          docs/superpowers/specs/2026-07-23-modal-resilience-design.md
   promo: {
     modalContainer: '.modal.in',
+    notificationContainer: '.modal-notificacao-container',
     backdrop: '.modal-backdrop.in',
     closeButtonText: 'Fechar', // exact-match; never an affirmative button
     dontShowAgainLabel: /não mostrar mais/i, // "Não mostrar mais essa notificação"
