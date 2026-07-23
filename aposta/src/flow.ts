@@ -350,8 +350,14 @@ export async function clickVisibleModalConfirm(page: Page): Promise<boolean> {
 export async function clearCart(page: Page, log: Logger): Promise<void> {
   await page.goto(CARRINHO_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 });
   await settleAndGuard(page, log); // "existem apostas idênticas" alert blocks clicks
+  // Empty cart => button rendered but DISABLED (ng-disabled="qtdApostasCarrinho
+  // <= 0", seen live 2026-07-23): nothing to clear, skip instead of retrying a
+  // click that can never land.
   const clear = page.locator(selectors.carrinho.clearCartButton);
-  if (await clear.isVisible().catch(() => false)) {
+  if (
+    (await clear.isVisible().catch(() => false)) &&
+    (await clear.isEnabled().catch(() => false))
+  ) {
     await clickWithModalGuard(page, clear, log);
     await sleep(1200);
     await clickVisibleModalConfirm(page); // "deseja limpar o carrinho?" -> Confirmar
