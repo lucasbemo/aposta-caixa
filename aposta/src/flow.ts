@@ -76,6 +76,32 @@ export async function acceptTermsIfPresent(page: Page, log: Logger): Promise<voi
 }
 
 /**
+ * Click the CURRENT page's "Acessar" link and drive Keycloak up to REQUESTING
+ * the email code (CPF -> "Próximo" -> pick email -> "Receber código"). Works
+ * from any silce-web page whose header shows "Acessar" — used by login() on
+ * the home page and by reloginAfterSessionExpiry() wherever the expiry was
+ * detected (never navigate back to the possibly-cached home first).
+ */
+async function beginKeycloakLogin(page: Page, secrets: Secrets, log: Logger): Promise<void> {
+  const loginLink = page.locator(selectors.home.loginLink);
+  await loginLink.waitFor({ timeout: 15_000 }).catch(() => {
+    throw new AbortBeforePayment('Botão "Acessar" não encontrado na página.');
+  });
+  await loginLink.click();
+
+  // Keycloak: CPF
+  await page.waitForSelector(selectors.login.cpfInput, { timeout: 20_000 });
+  await page.fill(selectors.login.cpfInput, secrets.caixaCpf);
+  await page.click(selectors.login.cpfNextButton);
+
+  // Keycloak: choose email, request code
+  await page.waitForSelector(selectors.login.mailRadio, { timeout: 20_000 });
+  await page.check(selectors.login.mailRadio).catch(() => {});
+  await page.click(selectors.login.requestCodeButton);
+  log.step('login-request-code', 'ok');
+}
+
+/**
  * Drive the Keycloak login up to REQUESTING the email code.
  * Order (real CAIXA flow): CPF -> "Próximo" -> pick email -> "Receber código".
  * The OTP email is sent at the end of this function.
@@ -94,22 +120,7 @@ export async function login(page: Page, secrets: Secrets, log: Logger): Promise<
     return 'ALREADY';
   }
 
-  const loginLink = page.locator(selectors.home.loginLink);
-  await loginLink.waitFor({ timeout: 15_000 }).catch(() => {
-    throw new AbortBeforePayment('Botão "Acessar" não encontrado na home.');
-  });
-  await loginLink.click();
-
-  // Keycloak: CPF
-  await page.waitForSelector(selectors.login.cpfInput, { timeout: 20_000 });
-  await page.fill(selectors.login.cpfInput, secrets.caixaCpf);
-  await page.click(selectors.login.cpfNextButton);
-
-  // Keycloak: choose email, request code
-  await page.waitForSelector(selectors.login.mailRadio, { timeout: 20_000 });
-  await page.check(selectors.login.mailRadio).catch(() => {});
-  await page.click(selectors.login.requestCodeButton);
-  log.step('login-request-code', 'ok');
+  await beginKeycloakLogin(page, secrets, log);
   return 'CODE_REQUESTED';
 }
 
@@ -160,6 +171,24 @@ export async function submitOtpAndPassword(
   await dismissBlockingModals(page, log); // fresh-login home is where promo modals appear most
   await recheckLateModals(page, log); // notification modal can render seconds later
   log.step('login-complete', 'ok');
+}
+
+/**
+ * Recover from SessionExpired: start Keycloak from the CURRENT page's
+ * "Acessar" link (never via the possibly-cached home) and complete OTP +
+ * password. Triggers a fresh OTP e-mail, same manual-paste fallback as a
+ * normal login. The caller retries the interrupted phase ONCE afterwards.
+ */
+export async function reloginAfterSessionExpiry(
+  page: Page,
+  secrets: Secrets,
+  timeoutSec: number,
+  log: Logger,
+  promptFallback: () => Promise<string>,
+): Promise<void> {
+  log.info('Sessão expirada — refazendo login...');
+  await beginKeycloakLogin(page, secrets, log);
+  await submitOtpAndPassword(page, secrets, timeoutSec, log, promptFallback);
 }
 
 /**

@@ -17,6 +17,9 @@ import {
   payAndConfirm,
   saveComprovante,
   AbortBeforePayment,
+  SessionExpired,
+  reloginAfterSessionExpiry,
+  type CheckoutInfo,
 } from './flow.js';
 
 export const APP_NAME = 'aposta';
@@ -47,7 +50,16 @@ async function runBet(dryRun: boolean): Promise<void> {
       );
     }
 
-    const info = await selectCarrinhoFavoritoAndCheckout(page, secrets, config.defaultCardLast4, log);
+    let info: CheckoutInfo;
+    try {
+      info = await selectCarrinhoFavoritoAndCheckout(page, secrets, config.defaultCardLast4, log);
+    } catch (e) {
+      if (!(e instanceof SessionExpired)) throw e;
+      await reloginAfterSessionExpiry(page, secrets, config.otpPollTimeoutSec, log, () =>
+        askLine('Cole o código do e-mail: '),
+      );
+      info = await selectCarrinhoFavoritoAndCheckout(page, secrets, config.defaultCardLast4, log);
+    }
     if (Number.isFinite(info.amount)) checkSpendGuardrail(info.amount, config.maxAmountPerRun);
 
     console.log(`\n${formatConfirmation(info)}`);
@@ -133,7 +145,16 @@ async function runComprovante(): Promise<void> {
       );
     }
     fs.mkdirSync(RECEIPTS_DIR, { recursive: true });
-    const comp = await saveComprovante(page, RECEIPTS_DIR, log);
+    let comp: { numero: string; screenshotPath: string };
+    try {
+      comp = await saveComprovante(page, RECEIPTS_DIR, log);
+    } catch (e) {
+      if (!(e instanceof SessionExpired)) throw e;
+      await reloginAfterSessionExpiry(page, secrets, config.otpPollTimeoutSec, log, () =>
+        askLine('Cole o código do e-mail: '),
+      );
+      comp = await saveComprovante(page, RECEIPTS_DIR, log);
+    }
     console.log(`\n✅ Comprovante da compra ${comp.numero || '(n/d)'} salvo em ${comp.screenshotPath}`);
   } catch (err) {
     console.error(`Erro: ${(err as Error).message}`);
